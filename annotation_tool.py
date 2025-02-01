@@ -66,9 +66,9 @@ class AnnotationTool:
         # Time Bar
         self.time_bar = ttk.Scale(self.bottom_frame, orient=tk.HORIZONTAL,
                                 from_=0, to=100,  # Will be updated when data is loaded
-                                variable=self.time_bar_value)
+                                variable=self.time_bar_value,
+                                command=self.update_time_bar)
         self.time_bar.pack(fill=tk.X, pady=(0, 10))
-        self.time_bar.bind("<ButtonRelease-1>", self.update_time_bar)
 
         # Label Frame
         self.label_frame = ttk.Frame(self.root)
@@ -99,6 +99,7 @@ class AnnotationTool:
             self.load_data(filepath)
 
     def load_data(self, filepath):
+        self.loaded_file = filepath
         try:
             data_dict = np.load(filepath, allow_pickle=True).item()
             self.imu_data = data_dict['imu_data']
@@ -193,11 +194,11 @@ class AnnotationTool:
 
             self.canvas.draw()
 
-    def update_time_bar(self, event=None):
+    def update_time_bar(self, value):
         if self.imu_data is None:
             return
             
-        current_index = int(self.time_bar_value.get())
+        current_index = int(float(value))
         self.current_frame_index = current_index
         self.update_plot()
         self.update_image_frame(current_index)
@@ -263,15 +264,12 @@ class AnnotationTool:
             print("No IMU data to save")
             return
             
-        # ラベル情報の保存
-        label_filepath = filedialog.asksaveasfilename(
-            defaultextension=".csv",
-            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
-            initialfile="imu_labels.csv"
-        )
-        
-        if not label_filepath:
+        try:
+            base_file = self.loaded_file
+        except AttributeError:
+            print("No data file loaded")
             return
+        label_filepath = base_file.replace('.npy', '_labels.csv')
             
         with open(label_filepath, 'w', newline='') as csvfile:
             csv_writer = csv.writer(csvfile)

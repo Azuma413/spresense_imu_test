@@ -15,7 +15,7 @@ sock.bind((UDP_IP, UDP_PORT))
 lavels = ["Acc1X", "Acc1Y", "Acc1Z", "Gyro1X", "Gyro1Y", "Gyro1Z", "Acc2X", "Acc2Y", "Acc2Z", "Gyro2X", "Gyro2Y", "Gyro2Z"]
 
 # プロット設定
-WINDOW_SIZE = 10  # 表示する時間幅（秒）
+WINDOW_SIZE = 3  # 表示する時間幅（秒）
 fig, axs = plt.subplots(1, 2, figsize=(10, 5))
 ax = axs[0]  # IMU data plot
 ax_image = axs[1]  # Camera image plot
@@ -39,7 +39,7 @@ if not cap.isOpened():
 def init():
     global ax_image_artist
     ax.set_xlim(0, WINDOW_SIZE)
-    ax.set_ylim(-30000, 30000)
+    ax.set_ylim(-150000, 150000)
     ax.set_xlabel("Time (s)")
     ax.set_ylabel("Value")
     ax.legend()
@@ -54,7 +54,6 @@ def update(frame):
     global data_list, time_stamps, video_frames, current_time, last_update_time
     current_time = time.time()
     elapsed_time = current_time - start_time
-    
     # FPS計算（実際の更新間隔）
     update_interval = current_time - last_update_time
     last_update_time = current_time
@@ -65,6 +64,7 @@ def update(frame):
     while True:
         try:
             sock.settimeout(0.001)  # より短いタイムアウトで最新データを取得
+            # sock.settimeout(0.001)  # より短いタイムアウトで最新データを取得
             data, addr = sock.recvfrom(1024)
         except socket.timeout:
             break
@@ -102,6 +102,12 @@ def update(frame):
 
 def save_data():
     global data_list, video_frames, start_time, time_stamps
+    # imu_dataのそれぞれの特徴量の最大値を取得（データがある場合のみ）
+    if data_list.size > 0:
+        max_values = np.max(data_list, axis=1)
+        print("Max values:", max_values)
+    else:
+        print("No IMU data available to compute max values.")
     timestamp = time.strftime("%Y%m%d_%H%M%S", time.localtime())
     data_dict = {
         "imu_data": data_list,
@@ -113,15 +119,14 @@ def save_data():
     print(f"Total elapsed time: {time.time() - start_time:.2f} seconds")
     print(f"Total data points: {len(time_stamps)}")
 
-# アニメーションの設定（33ms ≈ 30fps）
-ani = FuncAnimation(fig, update, init_func=init, blit=True, interval=33)
+ani = FuncAnimation(fig, update, init_func=init, blit=True, interval=10, cache_frame_data=False) # interval=0にすると30FPSくらいになる
 
 try:
     plt.show()
 except KeyboardInterrupt:
-    print("KeyboardInterrupt detected, saving data...")
-    save_data()
+    print("KeyboardInterrupt detected")
 finally:
+    save_data()
     cap.release()
     sock.close()
     print("Script finished.")
