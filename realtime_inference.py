@@ -50,7 +50,7 @@ if not cap.isOpened():
 
 # Initialize model
 model = IMUPredictor(num_classes=4)
-model.load("best_model.pth")  # IMUPredictorのloadメソッドを使用
+model.load("models/best_model.pth")  # IMUPredictorのloadメソッドを使用
 model.eval()
 
 def preprocess_data(data):

@@ -71,7 +71,7 @@ def train(model, train_loader, valid_loader, num_epochs=50, device='cuda'):
         # Save best model
         if valid_acc > best_acc:
             best_acc = valid_acc
-            model.save('best_model.pth')
+            model.save('models/best_model.pth')
         
         scheduler.step()
         
