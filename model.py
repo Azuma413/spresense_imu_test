@@ -129,3 +129,25 @@ class IMUPredictor(torch.nn.Module):
     def load(self, path):
         print(f"load model from {path}")
         self.load_state_dict(torch.load(path))
+
+class IMULinearRegression(torch.nn.Module):
+    def __init__(self, num_classes, window_size=60):
+        super(IMULinearRegression, self).__init__()
+        self.window_size = window_size
+        self.num_features = window_size * 2
+        self.linear = torch.nn.Linear(self.num_features, num_classes)
+
+    def forward(self, x):
+        # x shape: (batch_size, seq_len, feature_dim=2)
+        batch_size, seq_len, feat_dim = x.shape
+        x = x.view(batch_size, seq_len * feat_dim)
+        x = self.linear(x)
+        return x
+
+    def save(self, path):
+        print(f"save linear model to {path}")
+        torch.save(self.state_dict(), path)
+
+    def load(self, path):
+        print(f"load linear model from {path}")
+        self.load_state_dict(torch.load(path))
