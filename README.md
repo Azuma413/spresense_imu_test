@@ -14,17 +14,17 @@
 
 ```
 .
-├── data/                   # 学習用データセット
-│   ├── run_labels.csv     # 走る動作のラベル付きデータ
-│   ├── walk_labels.csv    # 歩く動作のラベル付きデータ
-│   ├── shake_labels.csv   # 振る動作のラベル付きデータ
-│   └── something_labels.csv# その他の動作のラベル付きデータ
-├── imu_test/              # Spresense用ソースコード
-│   ├── imu_test.ino      # メインのArduinoスケッチ
-│   └── udp_send.hpp      # UDPデータ送信用ライブラリ
-├── models/                # 学習済みモデル
-│   └── best_model.pth    # 最良の学習結果を保存したモデル
-└── *.py                  # Pythonスクリプト群
+├── data/                     # 学習用データセット
+│   ├── run_labels.csv        # 走る動作のラベル付きデータ
+│   ├── walk_labels.csv       # 歩く動作のラベル付きデータ
+│   ├── shake_labels.csv      # 振る動作のラベル付きデータ
+│   └── something_labels.csv  # その他の動作のラベル付きデータ
+├── imu_test/                 # Spresense用ソースコード
+│   ├── imu_test.ino          # メインのArduinoスケッチ
+│   └── udp_send.hpp          # UDPデータ送信用ライブラリ
+├── models/                   # 学習済みモデル
+│   └── best_model.pth        # 最良の学習結果を保存したモデル
+└── *.py                      # Pythonスクリプト群
 ```
 
 ## 必要な環境
@@ -95,7 +95,7 @@ python realtime_inference.py
 - UDPでデータを送信
 
 ### モデルアーキテクチャ（model.py）
-- TransformerベースのアーキテクチャPPを採用
+- Transformerベースのアーキテクチャを採用
 - 入力：
   - 時系列長：60サンプル
   - 特徴量：加速度ノルム、ジャイロノルム（2次元）
