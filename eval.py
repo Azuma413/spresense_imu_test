@@ -1,7 +1,10 @@
 import csv
 import numpy as np
 import torch
-from model import IMUPredictor, IMULinearRegression
+from model import IMUPredictor, IMULinearRegression, IMUConvNet
+import matplotlib.pyplot as plt
+from sklearn.metrics import confusion_matrix
+import seaborn as sns
 
 WINDOW_SIZE = 60
 ACCEL_SCALE = 2000
@@ -23,18 +26,23 @@ def preprocess_data(data):
     gyro_norm = (gyro1_norm + gyro2_norm) / (2 * GYRO_SCALE)
     return np.array([accel_norm, gyro_norm])
 
-def main():
-    model_name = "linear"
-    # model_name = "transformer"
+def main(model_name):
     if model_name == "linear":
         model = IMULinearRegression(num_classes=4, window_size=WINDOW_SIZE)
-    else:
+    elif model_name == "transformer":
         model = IMUPredictor(num_classes=4)
+    elif model_name == "conv":
+        model = IMUConvNet(num_classes=4, window_size=WINDOW_SIZE)
+    else:
+        raise ValueError(f"Invalid model name: {model_name}")
     model.load(f"models/best_{model_name}_model.pth")
+    # パラメータ数を表示
+    print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
     model.eval()
 
     data_buffer = np.zeros((12, WINDOW_SIZE))
     labels_buffer = []
+    predicted_labels = []
     correct = 0
     total = 0
     idx = 0
@@ -52,7 +60,6 @@ def main():
 
             data_buffer = np.roll(data_buffer, -1, axis=1)
             data_buffer[:, -1] = raw_data
-            labels_buffer.append(true_label)
 
             if idx >= WINDOW_SIZE - 1:
                 features = np.array([preprocess_data(data_buffer[:, i]) for i in range(WINDOW_SIZE)])
@@ -61,7 +68,9 @@ def main():
                     output = model(features_tensor)
                 predicted_idx = output.argmax().item()
                 predicted_label = idx_to_label[predicted_idx]
-                if predicted_label == labels_buffer[-1]:
+                predicted_labels.append(predicted_label)
+                labels_buffer.append(true_label)
+                if predicted_label == true_label:
                     correct += 1
                 total += 1
 
@@ -69,6 +78,25 @@ def main():
 
     accuracy = correct / total if total > 0 else 0
     print(f"Accuracy: {accuracy:.4f}")
+    
+    # Calculate confusion matrix
+    labels = list(idx_to_label.values())
+    cm = confusion_matrix(labels_buffer, predicted_labels, labels=labels)
+    
+    # Plot confusion matrix
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+                xticklabels=labels, yticklabels=labels)
+    plt.title(f'Confusion Matrix - {model_name} model')
+    plt.xlabel('Predicted')
+    plt.ylabel('True')
+    plt.tight_layout()
+    plt.savefig(f'confusion_matrix_{model_name}.png')
+    plt.close()
+    print(f"Confusion matrix has been saved as 'confusion_matrix_{model_name}.png'")
 
 if __name__ == '__main__':
-    main()
+    model_name = "linear"
+    # model_name = "transformer"
+    # model_name = "conv"
+    main(model_name)

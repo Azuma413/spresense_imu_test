@@ -1,7 +1,7 @@
 import os
 import torch
 from torch.utils.data import DataLoader
-from model import IMUDataset, IMUPredictor, IMULinearRegression
+from model import IMUDataset, IMUPredictor, IMULinearRegression, IMUConvNet
 import numpy as np
 from tqdm import tqdm
 
@@ -63,9 +63,7 @@ def train(model, train_loader, valid_loader, num_epochs=50, device='cuda', save_
         print(f'Valid Loss: {valid_loss:.4f} | Valid Acc: {valid_acc:.2f}%')
         print('-' * 60)
 
-def main():
-    # model_name = "transformer"
-    model_name = "linear"
+def main(model_name):
     try:
         # Parameters
         WINDOW_SIZE = 60
@@ -99,8 +97,12 @@ def main():
         print("\nInitializing model...")
         if model_name == "transformer":
             model = IMUPredictor(num_classes=NUM_CLASSES).to(DEVICE)
-        else:
+        elif model_name == "conv":
+            model = IMUConvNet(num_classes=NUM_CLASSES, window_size=WINDOW_SIZE).to(DEVICE)
+        elif model_name == "linear":
             model = IMULinearRegression(num_classes=NUM_CLASSES, window_size=WINDOW_SIZE).to(DEVICE)
+        else:
+            raise ValueError(f"Invalid model name: {model_name}")
         print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
         # Training
         train(model, train_loader, valid_loader, device=DEVICE, save_path=f'models/best_{model_name}_model.pth')
@@ -109,8 +111,11 @@ def main():
         raise
 
 if __name__ == '__main__':
+    # model_name = "transformer"
+    model_name = "linear"
+    # model_name = "conv"
     try:
-        main()
+        main(model_name)
     except KeyboardInterrupt:
         print("\nTraining interrupted by user")
     except Exception as e:

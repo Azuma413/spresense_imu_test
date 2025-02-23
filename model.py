@@ -151,3 +151,68 @@ class IMULinearRegression(torch.nn.Module):
     def load(self, path):
         print(f"load linear model from {path}")
         self.load_state_dict(torch.load(path))
+
+class IMUConvNet(torch.nn.Module):
+    def __init__(self, num_classes, window_size=60, feature_dim=2):
+        super(IMUConvNet, self).__init__()
+        
+        # First convolutional block
+        self.conv1 = torch.nn.Conv1d(feature_dim, 32, kernel_size=3, padding=1)
+        self.bn1 = torch.nn.BatchNorm1d(32)
+        self.pool1 = torch.nn.MaxPool1d(2)
+        
+        # Second convolutional block
+        self.conv2 = torch.nn.Conv1d(32, 64, kernel_size=3, padding=1)
+        self.bn2 = torch.nn.BatchNorm1d(64)
+        self.pool2 = torch.nn.MaxPool1d(2)
+        
+        # Calculate the size after convolutions and pooling
+        final_seq_len = window_size // 4  # After two maxpool layers (60 -> 30 -> 15)
+        
+        # Global average pooling and dense layers
+        self.gap = torch.nn.AdaptiveAvgPool1d(1)
+        self.fc = torch.nn.Linear(64, 128)
+        self.dropout = torch.nn.Dropout(0.5)
+        self.output_layer = torch.nn.Linear(128, num_classes)
+        
+        self.act = torch.nn.ReLU()
+
+    def forward(self, x):
+        """
+        x: (batch_size, seq_len, feature_dim)
+        return: (batch_size, num_classes)
+        """
+        # Rearrange input for 1D convolution
+        x = x.permute(0, 2, 1)  # (batch_size, feature_dim, seq_len)
+        
+        # First conv block
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.act(x)
+        x = self.pool1(x)
+        
+        # Second conv block
+        x = self.conv2(x)
+        x = self.bn2(x)
+        x = self.act(x)
+        x = self.pool2(x)
+        
+        # Global average pooling
+        x = self.gap(x)
+        x = x.squeeze(-1)  # Remove the last dimension
+        
+        # Dense layers
+        x = self.fc(x)
+        x = self.act(x)
+        x = self.dropout(x)
+        x = self.output_layer(x)
+        
+        return x
+
+    def save(self, path):
+        print(f"save model to {path}")
+        torch.save(self.state_dict(), path)
+
+    def load(self, path):
+        print(f"load model from {path}")
+        self.load_state_dict(torch.load(path))
