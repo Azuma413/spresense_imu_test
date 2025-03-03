@@ -4,10 +4,16 @@ from torch.utils.data import DataLoader
 from model import IMUDataset, IMUPredictor, IMULinearRegression, IMUConvNet
 import numpy as np
 from tqdm import tqdm
+import matplotlib.pyplot as plt
 
 def train(model, train_loader, valid_loader, num_epochs=50, device='cuda', save_path='models/best_model.pth'):
-    # Create directory for saved models
+    # Create directories for saved models and plots
     os.makedirs('models', exist_ok=True)
+    os.makedirs('images', exist_ok=True)
+    
+    # Lists to store accuracy values
+    train_accuracies = []
+    valid_accuracies = []
     # Initialize training components
     criterion = torch.nn.CrossEntropyLoss()
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
@@ -62,33 +68,47 @@ def train(model, train_loader, valid_loader, num_epochs=50, device='cuda', save_
         print(f'Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.2f}%')
         print(f'Valid Loss: {valid_loss:.4f} | Valid Acc: {valid_acc:.2f}%')
         print('-' * 60)
+        
+        # Store accuracies
+        train_accuracies.append(train_acc)
+        valid_accuracies.append(valid_acc)
+    
+    # Plot accuracies
+    plt.figure(figsize=(10, 6))
+    plt.plot(range(1, num_epochs + 1), train_accuracies, label='Train Accuracy')
+    plt.plot(range(1, num_epochs + 1), valid_accuracies, label='Validation Accuracy')
+    plt.xlabel('Epoch')
+    plt.ylabel('Accuracy (%)')
+    plt.title('Training and Validation Accuracy over Epochs')
+    plt.legend()
+    plt.grid(True)
+    
+    # Save plot
+    model_type = save_path.split('_')[-2]  # Extract model type from save path
+    plt.savefig(f'images/accuracy_plot_{model_type}.png')
+    plt.close()
 
 def main(model_name):
     try:
         # Parameters
-        WINDOW_SIZE = 60
+        WINDOW_SIZE = 30
         BATCH_SIZE = 32
-        NUM_CLASSES = 4  # run, walk, shake, something
+        FEATURE_DIM = 2*4
+        NUM_CLASSES = 3  # run, walk, something
         DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
-        # Check CUDA availability
-        if not torch.cuda.is_available() and DEVICE == 'cuda':
-            print("CUDA is not available. Using CPU instead.")
-            DEVICE = 'cpu'
         # データパス（CSVファイルのみ使用）
-        data_paths = [
-            'data/run_labels.csv',
-            'data/walk_labels.csv',
-            'data/shake_labels.csv',
-            'data/something_labels.csv'
+        train_data_paths = [
+            'data/train1_labels.csv',
+            'data/train2_labels.csv',
+            'data/train3_labels.csv',
         ]
-        # Verify all data files exist
-        for path in data_paths:
-            if not os.path.exists(path):
-                raise FileNotFoundError(f"Data file not found: {path}")
+        eval_data_paths = [
+            'data/eval_labels.csv',
+        ]
         print("\nInitializing datasets...")
         # Dataset and DataLoader
-        train_dataset = IMUDataset(data_paths, window_size=WINDOW_SIZE, mode='train')
-        valid_dataset = IMUDataset(data_paths, window_size=WINDOW_SIZE, mode='valid')
+        train_dataset = IMUDataset(train_data_paths, window_size=WINDOW_SIZE)
+        valid_dataset = IMUDataset(eval_data_paths, window_size=WINDOW_SIZE)
         print(f"Train dataset size: {len(train_dataset)}")
         print(f"Validation dataset size: {len(valid_dataset)}")
         train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
@@ -96,24 +116,24 @@ def main(model_name):
         # Model
         print("\nInitializing model...")
         if model_name == "transformer":
-            model = IMUPredictor(num_classes=NUM_CLASSES).to(DEVICE)
+            model = IMUPredictor(num_classes=NUM_CLASSES, feature_dim=FEATURE_DIM).to(DEVICE)
         elif model_name == "conv":
-            model = IMUConvNet(num_classes=NUM_CLASSES, window_size=WINDOW_SIZE).to(DEVICE)
+            model = IMUConvNet(num_classes=NUM_CLASSES, window_size=WINDOW_SIZE, feature_dim=FEATURE_DIM).to(DEVICE)
         elif model_name == "linear":
             model = IMULinearRegression(num_classes=NUM_CLASSES, window_size=WINDOW_SIZE).to(DEVICE)
         else:
             raise ValueError(f"Invalid model name: {model_name}")
         print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
         # Training
-        train(model, train_loader, valid_loader, device=DEVICE, save_path=f'models/best_{model_name}_model.pth')
+        train(model, train_loader, valid_loader, num_epochs=10, device=DEVICE, save_path=f'models/best_{model_name}_model.pth')
     except Exception as e:
         print(f"\nError during training: {str(e)}")
         raise
 
 if __name__ == '__main__':
     # model_name = "transformer"
-    model_name = "linear"
-    # model_name = "conv"
+    # model_name = "linear"
+    model_name = "conv"
     try:
         main(model_name)
     except KeyboardInterrupt:

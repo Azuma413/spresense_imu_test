@@ -6,6 +6,7 @@ import cv2
 import time
 import torch
 from model import IMUPredictor
+from collections import defaultdict
 
 # Constants
 UDP_IP = "0.0.0.0"
@@ -22,6 +23,16 @@ idx_to_label = {
     3: 'something'
 }
 
+# IDごとの色を定義
+id_colors = {
+    1: 'blue',
+    2: 'red',
+    3: 'green',
+    4: 'purple',
+    5: 'orange',
+    # 必要に応じて追加
+}
+
 # Initialize UDP socket
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 sock.bind((UDP_IP, UDP_PORT))
@@ -30,16 +41,16 @@ sock.bind((UDP_IP, UDP_PORT))
 fig, axs = plt.subplots(1, 2, figsize=(10, 5))
 ax = axs[0]  # IMU data plot
 ax_image = axs[1]  # Camera image plot
-labels = ["Acc1X", "Acc1Y", "Acc1Z", "Gyro1X", "Gyro1Y", "Gyro1Z", 
-          "Acc2X", "Acc2Y", "Acc2Z", "Gyro2X", "Gyro2Y", "Gyro2Z"]
-lines = [ax.plot([], [], lw=2, label=label)[0] for label in labels]
 ax_image_artist = None
 
-# Initialize data storage
-data_buffer = np.zeros((12, WINDOW_SIZE))  # 12 features x window size for model
-data_list = np.zeros((12, 0))  # For plotting all historical data
-current_idx = 0
-time_stamps = np.array([])
+# IDごとのデータとラインを管理
+id_data_buffer = defaultdict(lambda: np.zeros((2, WINDOW_SIZE)))  # ID -> (2 features x window size)
+id_data_list = defaultdict(lambda: np.zeros((2, 0)))  # ID -> (2 features x time points)
+id_current_idx = defaultdict(int)
+id_timestamps = defaultdict(lambda: np.array([]))
+id_lines = {}  # ID -> [accel_line, gyro_line]
+id_predictions = {}  # ID -> predicted label
+
 start_time = time.time()
 last_update_time = start_time
 
@@ -54,34 +65,29 @@ model.load("models/best_model.pth")  # IMUPredictorのloadメソッドを使用
 model.eval()
 
 def preprocess_data(data):
-    # Calculate norms for both IMUs
-    accel1_norm = np.sqrt(data[0]**2 + data[1]**2 + data[2]**2)
-    accel2_norm = np.sqrt(data[6]**2 + data[7]**2 + data[8]**2)
-    gyro1_norm = np.sqrt(data[3]**2 + data[4]**2 + data[5]**2)
-    gyro2_norm = np.sqrt(data[9]**2 + data[10]**2 + data[11]**2)
-    
-    # Average norms and scale
-    accel_norm = (accel1_norm + accel2_norm) / (2 * ACCEL_SCALE)
-    gyro_norm = (gyro1_norm + gyro2_norm) / (2 * GYRO_SCALE)
+    # データはすでにノルム（大きさ）になっているので、スケーリングのみ行う
+    accel_norm = data[0] / ACCEL_SCALE
+    gyro_norm = data[1] / GYRO_SCALE
     
     return np.array([accel_norm, gyro_norm])
 
 def init():
     global ax_image_artist
     ax.set_xlim(0, 3)  # 3秒間のデータを表示
-    ax.set_ylim(-200000, 200000)  # より広いY軸範囲を設定
+    ax.set_ylim(0, 50000)  # ノルムは正の値なので範囲を調整
     ax.set_xlabel("Time (s)")
     ax.set_ylabel("Value")
-    ax.legend()
     ax.grid(True)
 
     ax_image.set_xticks([])
     ax_image.set_yticks([])
     ax_image_artist = ax_image.imshow(np.zeros((480, 640, 3)))
-    return lines + [ax_image_artist]
+    
+    # 空のラインを返す（IDごとのラインは動的に追加される）
+    return [ax_image_artist]
 
 def update(frame):
-    global data_buffer, data_list, current_idx, time_stamps, last_update_time
+    global id_data_buffer, id_data_list, id_current_idx, id_timestamps, id_lines, id_predictions, last_update_time
     current_time = time.time()
     elapsed_time = current_time - start_time
     update_interval = current_time - last_update_time
@@ -98,28 +104,34 @@ def update(frame):
 
     if data is not None:
         # データの更新
-        raw_data = np.frombuffer(data, dtype=np.float32)
-        # Update data_buffer for model inference
-        data_buffer = np.roll(data_buffer, -1, axis=1)
-        data_buffer[:, -1] = raw_data
-        # Update data_list for plotting
-        data_list = np.hstack((data_list, raw_data.reshape(-1, 1)))
-        time_stamps = np.append(time_stamps, elapsed_time)
-
-        # プロットの更新
-        x_min = max(0, elapsed_time - 3)
-        x_max = elapsed_time
-        ax.set_xlim(x_min, x_max)
-        mask = (time_stamps >= x_min) & (time_stamps <= x_max)
-        visible_times = time_stamps[mask]
-        visible_data = data_list[:, mask]
-
-        for i, line in enumerate(lines):
-            line.set_data(visible_times, visible_data[i])
-
+        data_array = np.frombuffer(data, dtype=np.float32)
+        
+        # 最初の要素がID、残りがIMUデータ
+        device_id = int(data_array[0])
+        imu_data = data_array[1:3]  # AccelNorm, GyroNorm
+        
+        # IDごとにデータバッファを更新
+        id_data_buffer[device_id] = np.roll(id_data_buffer[device_id], -1, axis=1)
+        id_data_buffer[device_id][:, -1] = imu_data
+        
+        # IDごとにデータリストを更新
+        id_data_list[device_id] = np.hstack((id_data_list[device_id], imu_data.reshape(-1, 1)))
+        id_timestamps[device_id] = np.append(id_timestamps[device_id], elapsed_time)
+        
+        # IDに対応するラインがなければ作成
+        if device_id not in id_lines:
+            color = id_colors.get(device_id, f'C{device_id % 10}')  # 定義されていないIDには自動的に色を割り当て
+            accel_line, = ax.plot([], [], lw=2, label=f'ID{device_id}-Accel', color=color, linestyle='-')
+            gyro_line, = ax.plot([], [], lw=2, label=f'ID{device_id}-Gyro', color=color, linestyle='--')
+            id_lines[device_id] = [accel_line, gyro_line]
+            ax.legend()
+        
+        # IDごとにカウンタを更新
+        id_current_idx[device_id] += 1
+        
         # データの前処理と推論
-        if current_idx >= WINDOW_SIZE - 1:
-            features = np.array([preprocess_data(data_buffer[:, i]) for i in range(WINDOW_SIZE)])
+        if id_current_idx[device_id] >= WINDOW_SIZE:
+            features = np.array([preprocess_data(id_data_buffer[device_id][:, i]) for i in range(WINDOW_SIZE)])
             # (batch_size, seq_len, feature_dim)の形式に変換
             features_tensor = torch.FloatTensor(features).unsqueeze(0).contiguous()  # Add batch dimension
             
@@ -127,28 +139,61 @@ def update(frame):
                 output = model(features_tensor)
                 predicted_idx = output.argmax().item()
                 predicted_label = idx_to_label[predicted_idx]
+                id_predictions[device_id] = predicted_label
+
+    # プロットの更新
+    x_min = max(0, elapsed_time - 3)
+    x_max = elapsed_time
+    ax.set_xlim(x_min, x_max)
+    
+    all_lines = []
+    for device_id, lines in id_lines.items():
+        if len(id_timestamps[device_id]) > 0:
+            # 表示範囲内のデータのみを使用
+            mask = (id_timestamps[device_id] >= x_min) & (id_timestamps[device_id] <= x_max)
+            visible_times = id_timestamps[device_id][mask]
+            visible_data = id_data_list[device_id][:, mask]
+            
+            # データの更新
+            lines[0].set_data(visible_times, visible_data[0])  # AccelNorm
+            lines[1].set_data(visible_times, visible_data[1])  # GyroNorm
+            
+            all_lines.extend(lines)
 
     # カメラフレームの更新と推論結果の表示
     ret, frame = cap.read()
     if ret:
-        # 推論結果をフレームに描画
-        if data is not None and current_idx >= WINDOW_SIZE - 1:
+        # 各IDの推論結果をフレームに描画
+        y_pos = 30
+        for device_id, prediction in id_predictions.items():
+            color = id_colors.get(device_id, (0, 0, 255))  # デフォルトは赤
+            if isinstance(color, str):
+                # 文字列の色名をRGB値に変換
+                if color == 'blue': bgr_color = (255, 0, 0)
+                elif color == 'red': bgr_color = (0, 0, 255)
+                elif color == 'green': bgr_color = (0, 255, 0)
+                elif color == 'purple': bgr_color = (255, 0, 255)
+                elif color == 'orange': bgr_color = (0, 165, 255)
+                else: bgr_color = (0, 0, 255)  # デフォルトは赤
+            else:
+                bgr_color = color
+                
             cv2.putText(
                 frame,
-                f"Prediction: {predicted_label}",
-                (10, 30),
+                f"ID{device_id}: {prediction}",
+                (10, y_pos),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                1,
-                (255, 0, 0),
+                0.8,
+                bgr_color,
                 2,
                 cv2.LINE_AA
             )
+            y_pos += 30
         
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         ax_image_artist.set_data(frame_rgb)
 
-    current_idx += 1
-    return lines + [ax_image_artist]
+    return all_lines + [ax_image_artist]
 
 ani = FuncAnimation(fig, update, init_func=init, blit=True, interval=10, cache_frame_data=False)
 

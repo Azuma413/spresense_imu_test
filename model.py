@@ -3,87 +3,48 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 import numpy as np
-import datetime
-
-ACCEL_SCALE = 2000
-GYRO_SCALE = 300000
 
 class IMUDataset(Dataset):
-    def __init__(self, data_paths, window_size=60, mode="train"):
+    def __init__(self, data_paths, window_size=60):
         if window_size < 1:
             raise ValueError("window_size must be positive")
         self.window_size = window_size
-        
         # Label mapping
         self.label_to_idx = {
             'run': 0,
             'walk': 1,
-            'shake': 2,
-            'something': 3
+            'something': 2
         }
-        
         # データの読み込みと前処理
         dfs = []
         for path in data_paths:
             try:
                 df = pd.read_csv(path)
-                # カラム名を統一
-                columns = ['accelX1', 'accelY1', 'accelZ1', 'gyroX1', 'gyroY1', 'gyroZ1', 
-                          'accelX2', 'accelY2', 'accelZ2', 'gyroX2', 'gyroY2', 'gyroZ2', 'label']
-                df.columns = columns
-                
-                # データ分割（各ファイルごとに分割）
-                split_idx = len(df) - int(len(df)*0.1)
-                if mode == "train":
-                    df = df.iloc[:split_idx]
-                elif mode == "valid":
-                    df = df.iloc[split_idx:]
-            except Exception as e:
-                print(f"Error loading {path}: {str(e)}")
-                continue
-
-            # 特徴量の作成
-            try:
-                accel_norm = (np.sqrt(df['accelX1']**2 + df['accelY1']**2 + df['accelZ1']**2) + 
-                            np.sqrt(df['accelX2']**2 + df['accelY2']**2 + df['accelZ2']**2)) / 2
-                gyro_norm = (np.sqrt(df['gyroX1']**2 + df['gyroY1']**2 + df['gyroZ1']**2) + 
-                            np.sqrt(df['gyroX2']**2 + df['gyroY2']**2 + df['gyroZ2']**2)) / 2
-                
-                df['accel_norm'] = accel_norm / ACCEL_SCALE
-                df['gyro_norm'] = gyro_norm / GYRO_SCALE
-                
+                print("ID Num: ", (len(df.columns) - 1) // 2)
                 # Convert string labels to integers
-                df['label'] = df['label'].map(self.label_to_idx)
-                
+                df['Label'] = df['Label'].map(self.label_to_idx)
                 dfs.append(df)
             except Exception as e:
                 print(f"Error processing {path}: {str(e)}")
                 continue
-        
         # 前処理済みデータの結合
         self.df = pd.concat(dfs, ignore_index=True)
-            
     def __len__(self):
         return len(self.df) - self.window_size
 
     def __getitem__(self, idx):
         window = self.df.iloc[idx:idx+self.window_size]
-        
-        # 特徴量の抽出（2個のノルム）
-        features = window[['accel_norm', 'gyro_norm']].values.astype(np.float32)
-        
         # ウィンドウ内で最も頻出するラベルを教師データとする
-        label = window['label'].mode()[0]
-        
+        label = window['Label'].mode()[0]
+        # 特徴量の抽出 label以外の列を取得
+        features = window.drop('Label', axis=1).values
         return torch.FloatTensor(features), torch.LongTensor([label])[0]
 
 class IMUPredictor(torch.nn.Module):
     def __init__(self, num_classes, feature_dim=2, embed_dim=64, num_heads=4, num_layers=2):
         super(IMUPredictor, self).__init__()
-        
         self.feature_tokenizer = torch.nn.Linear(feature_dim, embed_dim)
         self.batch_norm1 = torch.nn.BatchNorm1d(embed_dim)
-        
         self.predictor = torch.nn.TransformerEncoder(
             torch.nn.TransformerEncoderLayer(
                 d_model=embed_dim,
@@ -94,7 +55,6 @@ class IMUPredictor(torch.nn.Module):
             ),
             num_layers=num_layers,
         )
-        
         self.pool = torch.nn.AdaptiveAvgPool1d(1)
         self.batch_norm2 = torch.nn.BatchNorm1d(embed_dim)
         self.output_layer = torch.nn.Linear(embed_dim, num_classes)
@@ -165,10 +125,12 @@ class IMUConvNet(torch.nn.Module):
         self.pool2 = torch.nn.MaxPool1d(2)
         # Global average pooling and dense layers
         self.gap = torch.nn.AdaptiveAvgPool1d(1)
-        self.fc = torch.nn.Linear(64, 128)
-        self.dropout = torch.nn.Dropout(0.5)
-        self.output_layer = torch.nn.Linear(128, num_classes)
-        self.act = torch.nn.ReLU()
+        self.fc = torch.nn.Linear(64, num_classes)
+        # self.fc = torch.nn.Linear(64, 128)
+        # self.dropout = torch.nn.Dropout(0.5)
+        # self.output_layer = torch.nn.Linear(128, num_classes)
+        self.act = torch.nn.GELU()
+        # self.act = torch.nn.ReLU()
 
     def forward(self, x):
         """
@@ -196,10 +158,10 @@ class IMUConvNet(torch.nn.Module):
         
         # Dense layers
         x = self.fc(x) # (batch_size, 128)
-        x = self.act(x)
-        x = self.dropout(x)
-        x = self.output_layer(x) # (batch_size, num_classes)
-        
+        # x = self.act(x)
+        # x = self.dropout(x)
+        # x = self.output_layer(x) # (batch_size, num_classes)
+
         return x
 
     def save(self, path):

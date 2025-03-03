@@ -9,7 +9,7 @@
 
 class UDPSend {
 public:
-    UDPSend(const char* ssid, const char* password, size_t size): ssid(ssid), password(password) {
+    UDPSend(const char* ssid, const char* password, size_t size, int id = 0): ssid(ssid), password(password), id(id) {
 		this->size = size*sizeof(float);
 	}
     void init();
@@ -21,7 +21,8 @@ private:
 	size_t size;
 	const char* ssid;
 	const char* password;
-	char server_cid =0;
+	int id;
+	char server_cid = 0;
 };
 
 void UDPSend::init() {
@@ -49,8 +50,17 @@ void UDPSend::init() {
 }
 
 void UDPSend::send(const float* data) {
+    // Create a new buffer that includes the ID at the beginning
+    float data_with_id[size/sizeof(float)];
+    data_with_id[0] = id;
+    
+    // Copy the rest of the data
+    for (size_t i = 1; i < size/sizeof(float); i++) {
+        data_with_id[i] = data[i-1];
+    }
+    
     uint8_t buffer[size];
-    memcpy(buffer, data, size);
+    memcpy(buffer, data_with_id, size);
     gs2200.write(server_cid, buffer, size);
 }
 
