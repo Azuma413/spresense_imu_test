@@ -91,7 +91,7 @@ def main(model_name):
     plt.xlabel('Predicted')
     plt.ylabel('True')
     plt.tight_layout()
-    plt.savefig(f'confusion_matrix_{model_name}.png')
+    plt.savefig(f'images/confusion_matrix_{model_name}.png')
     plt.close()
     print(f"Confusion matrix has been saved as 'confusion_matrix_{model_name}.png'")
 

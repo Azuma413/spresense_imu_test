@@ -155,26 +155,19 @@ class IMULinearRegression(torch.nn.Module):
 class IMUConvNet(torch.nn.Module):
     def __init__(self, num_classes, window_size=60, feature_dim=2):
         super(IMUConvNet, self).__init__()
-        
         # First convolutional block
         self.conv1 = torch.nn.Conv1d(feature_dim, 32, kernel_size=3, padding=1)
         self.bn1 = torch.nn.BatchNorm1d(32)
         self.pool1 = torch.nn.MaxPool1d(2)
-        
         # Second convolutional block
         self.conv2 = torch.nn.Conv1d(32, 64, kernel_size=3, padding=1)
         self.bn2 = torch.nn.BatchNorm1d(64)
         self.pool2 = torch.nn.MaxPool1d(2)
-        
-        # Calculate the size after convolutions and pooling
-        final_seq_len = window_size // 4  # After two maxpool layers (60 -> 30 -> 15)
-        
         # Global average pooling and dense layers
         self.gap = torch.nn.AdaptiveAvgPool1d(1)
         self.fc = torch.nn.Linear(64, 128)
         self.dropout = torch.nn.Dropout(0.5)
         self.output_layer = torch.nn.Linear(128, num_classes)
-        
         self.act = torch.nn.ReLU()
 
     def forward(self, x):
@@ -186,26 +179,26 @@ class IMUConvNet(torch.nn.Module):
         x = x.permute(0, 2, 1)  # (batch_size, feature_dim, seq_len)
         
         # First conv block
-        x = self.conv1(x)
+        x = self.conv1(x) # (batch_size, 32, seq_len)
         x = self.bn1(x)
         x = self.act(x)
-        x = self.pool1(x)
+        x = self.pool1(x) # (batch_size, 32, seq_len // 2)
         
         # Second conv block
-        x = self.conv2(x)
+        x = self.conv2(x) # (batch_size, 64, seq_len // 2)
         x = self.bn2(x)
         x = self.act(x)
-        x = self.pool2(x)
+        x = self.pool2(x) # (batch_size, 64, seq_len // 4)
         
         # Global average pooling
-        x = self.gap(x)
-        x = x.squeeze(-1)  # Remove the last dimension
+        x = self.gap(x) # (batch_size, 64, 1)
+        x = x.squeeze(-1) # Remove the last dimension
         
         # Dense layers
-        x = self.fc(x)
+        x = self.fc(x) # (batch_size, 128)
         x = self.act(x)
         x = self.dropout(x)
-        x = self.output_layer(x)
+        x = self.output_layer(x) # (batch_size, num_classes)
         
         return x
 
