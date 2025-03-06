@@ -60,7 +60,7 @@ METS = {'run': 6.0, 'walk': 3.0, 'something': 1.5}
 BODY_WEIGHT = 60  # Default weight in kg
 CALORIE_WINDOW = 60  # 10分 (60 steps of 10-second intervals)
 accumulated_calories = 0  # 10秒間の累積カロリー
-calorie_line = None
+calorie_bars = None
 calorie_times = np.arange(CALORIE_WINDOW)
 calorie_data = np.zeros(CALORIE_WINDOW)
 
@@ -119,7 +119,7 @@ def preprocess_data(all_data_buffer):
     return np.array(features)  # shape: (WINDOW_SIZE, 8)
 
 def init():
-    global ax_image_artist, calorie_line, legend_created
+    global ax_image_artist, calorie_bars, legend_created
     ax.set_xlim(0, 3)  # 3秒間のデータを表示
     ax.set_ylim(0, 2)  # ノルムは正の値なので範囲を調整
     ax.set_xlabel("Time (s)")
@@ -137,17 +137,17 @@ def init():
     ax_calories.set_ylabel("Calories")
     ax_calories.grid(True)
     
-    # Create line with label only for the first time
+    # Create initial bar plot for calories
     if not legend_created:
-        calorie_line, = ax_calories.plot([], [], 'r-', label='Calories/10s', linewidth=2)
+        calorie_bars = ax_calories.bar(calorie_times, calorie_data, width=0.8, color='r', alpha=0.6, label='Calories/10s')
         ax_calories.legend(loc='upper right', frameon=True, fancybox=True, shadow=True)
         legend_created = True
     else:
-        calorie_line, = ax_calories.plot([], [], 'r-', label='_nolegend_', linewidth=2)
+        calorie_bars = ax_calories.bar(calorie_times, calorie_data, width=0.8, color='r', alpha=0.6)
     
     # Adjust layout to prevent label overlap
     plt.tight_layout()
-    return [ax_image_artist, calorie_line]
+    return [ax_image_artist]
 
 def update(frame):
     global id_data, id_timestamps, id_lines, current_prediction, id_data_buffer, \
@@ -274,29 +274,30 @@ def update(frame):
         # 時間軸も実際の経過時間で更新
         calorie_times = np.roll(calorie_times, -1)
         calorie_times[-1] = elapsed_time_in_minutes
+        
+        # Update bar heights
+        for bar, height in zip(calorie_bars, calorie_data):
+            bar.set_height(height)
+            
         # グラフの表示範囲を調整（直近のデータを表示）
         if elapsed_time_in_minutes > CALORIE_WINDOW/6:  # 10分以上経過したら表示範囲をスクロール
             ax_calories.set_xlim(elapsed_time_in_minutes - CALORIE_WINDOW/6, elapsed_time_in_minutes)
+        
+        # Dynamically adjust y-axis based on actual calorie values
+        if len(calorie_data[calorie_data > 0]) > 0:
+            max_calories = np.max(calorie_data[calorie_data > 0])
+            current_ymax = ax_calories.get_ylim()[1]
+            if max_calories > current_ymax * 0.8:
+                ax_calories.set_ylim(0, max_calories * 1.2)
+            elif max_calories < current_ymax * 0.3:
+                ax_calories.set_ylim(0, max_calories * 1.5)
+        
         accumulated_calories = 0
         last_calorie_time = current_time
 
-    # Update calorie line data
-    calorie_line.set_data(calorie_times, calorie_data)
-    
-    # Dynamically adjust y-axis based on actual calorie values
-    if len(calorie_data[calorie_data > 0]) > 0:
-        max_calories = np.max(calorie_data[calorie_data > 0])
-        current_ymax = ax_calories.get_ylim()[1]
-        if max_calories > current_ymax * 0.8:
-            ax_calories.set_ylim(0, max_calories * 1.2)
-        elif max_calories < current_ymax * 0.3:
-            ax_calories.set_ylim(0, max_calories * 1.5)
-    
-    # Adjust x-axis ticks for better readability
-    ax_calories.xaxis.set_major_locator(plt.MaxNLocator(10))
-    return all_lines + [ax_image_artist, calorie_line]
+    return all_lines + [ax_image_artist]
 
-ani = FuncAnimation(fig, update, init_func=init, blit=True, interval=10, cache_frame_data=False)
+ani = FuncAnimation(fig, update, init_func=init, blit=False, interval=10, cache_frame_data=False)
 
 try:
     plt.show()
