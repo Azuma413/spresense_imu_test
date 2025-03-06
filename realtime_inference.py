@@ -35,14 +35,21 @@ sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 sock.bind((UDP_IP, UDP_PORT))
 
 # Initialize plot
-fig, axs = plt.subplots(2, 2, figsize=(12, 10))
-ax = axs[0, 0]  # IMU data plot
-ax_image = axs[0, 1]  # Camera image plot
-# Create a single subplot for calories that spans both columns
-ax_calories = plt.subplot2grid((2, 2), (1, 0), colspan=2)
-ax_calories.set_title('Calories Burned (per 10 seconds)')
+# Create figure with proper spacing
+fig = plt.figure(figsize=(12, 10))
+plt.subplots_adjust(hspace=0.4, wspace=0.3)
+
+# Create grid layout
+gs = plt.GridSpec(2, 2)
+
+# Create subplots with adjusted positions
+ax = fig.add_subplot(gs[0, 0])  # IMU data plot
+ax_image = fig.add_subplot(gs[0, 1])  # Camera image plot
+ax_calories = fig.add_subplot(gs[1, :])  # Calories plot spanning both columns
+
 ax.set_title('IMU Data')
 ax_image.set_title('Camera Feed')
+ax_calories.set_title('Calories Burned (per 10 seconds)')
 ax_image_artist = None
 
 # Calorie calculation constants
@@ -122,12 +129,15 @@ def init():
     
     # Initialize calories plot
     ax_calories.set_xlim(0, CALORIE_WINDOW)
-    ax_calories.set_ylim(0, 5)  # Adjusted for typical 10-second calorie burns
+    ax_calories.set_ylim(0, 5)  # Initial range, will be adjusted dynamically
     ax_calories.set_xlabel("Time (steps of 10 seconds)")
     ax_calories.set_ylabel("Calories")
     ax_calories.grid(True)
     calorie_line, = ax_calories.plot([], [], 'r-', label='Calories/10s', linewidth=2)
-    ax_calories.legend(loc='upper right')
+    # Create legend once during initialization
+    ax_calories.legend(loc='upper right', frameon=True, fancybox=True, shadow=True)
+    # Adjust layout to prevent label overlap
+    plt.tight_layout()
     return [ax_image_artist, calorie_line]
 
 def update(frame):
@@ -261,7 +271,20 @@ def update(frame):
         accumulated_calories = 0
         last_calorie_time = current_time
 
+    # Update calorie line data
     calorie_line.set_data(calorie_times, calorie_data)
+    
+    # Dynamically adjust y-axis based on actual calorie values
+    if len(calorie_data[calorie_data > 0]) > 0:
+        max_calories = np.max(calorie_data[calorie_data > 0])
+        current_ymax = ax_calories.get_ylim()[1]
+        if max_calories > current_ymax * 0.8:
+            ax_calories.set_ylim(0, max_calories * 1.2)
+        elif max_calories < current_ymax * 0.3:
+            ax_calories.set_ylim(0, max_calories * 1.5)
+    
+    # Adjust x-axis ticks for better readability
+    ax_calories.xaxis.set_major_locator(plt.MaxNLocator(10))
     return all_lines + [ax_image_artist, calorie_line]
 
 ani = FuncAnimation(fig, update, init_func=init, blit=True, interval=10, cache_frame_data=False)
