@@ -49,11 +49,10 @@ ax_image_artist = None
 METS = {'run': 6.0, 'walk': 3.0, 'something': 1.5}
 BODY_WEIGHT = 60  # Default weight in kg
 CALORIE_WINDOW = 60  # 10分 (60 steps of 10-second intervals)
-calorie_data = np.zeros(CALORIE_WINDOW)
-calorie_times = np.zeros(CALORIE_WINDOW)
-last_calorie_time = time.time()
 accumulated_calories = 0  # 10秒間の累積カロリー
 calorie_line = None
+calorie_times = np.arange(CALORIE_WINDOW)
+calorie_data = np.zeros(CALORIE_WINDOW)
 
 # plotter.pyと同様のデータ構造
 id_data = np.full((4, 2, 0), np.nan, dtype=np.float32)  # (4 IDs, 2 values per ID, time points)
@@ -66,6 +65,7 @@ DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 # Initialize timers
 start_time = time.time()
+last_calorie_time = time.time()
 last_update_time = start_time
 
 # Initialize camera
@@ -128,8 +128,6 @@ def init():
     ax_calories.grid(True)
     calorie_line, = ax_calories.plot([], [], 'r-', label='Calories/10s', linewidth=2)
     ax_calories.legend(loc='upper right')
-    
-    # 空のラインを返す（IDごとのラインは動的に追加される）
     return [ax_image_artist, calorie_line]
 
 def update(frame):
@@ -193,7 +191,6 @@ def update(frame):
             features = preprocess_data(id_data_buffer)
             # (batch_size, seq_len, feature_dim)の形式に変換
             features_tensor = torch.FloatTensor(features).unsqueeze(0).to(DEVICE)
-            
             with torch.no_grad():
                 output = model(features_tensor)
                 predicted_idx = output.argmax().item()
@@ -241,38 +238,30 @@ def update(frame):
                 2,
                 cv2.LINE_AA
             )
-        
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         ax_image_artist.set_data(frame_rgb)
 
-    # Calculate calories for this update interval
     if current_prediction in METS:
         # cal = METs * time(s) * weight(kg) * 1.05 / 3600
         interval_calories = METS[current_prediction] * update_interval * BODY_WEIGHT * 1.05 / 3600
         accumulated_calories += interval_calories
 
-    # Update calories plot every 10 seconds
-    current_time = time.time()
     if current_time - last_calorie_time >= 10:  # 10秒ごとに更新
+        # 実際の経過時間を記録
+        elapsed_time_in_minutes = (current_time - start_time) / 60  # 分単位
         # Update calorie data with rolling window
         calorie_data = np.roll(calorie_data, -1)
-        calorie_data[-1] = accumulated_calories
-        
-        # Update time steps
+        calorie_data[-1] = accumulated_calories  # 10秒間の消費カロリー
+        # 時間軸も実際の経過時間で更新
         calorie_times = np.roll(calorie_times, -1)
-        calorie_times[-1] = len(calorie_times) - 1
-        
-        # Update the calorie line
-        calorie_line.set_data(calorie_times, calorie_data)
-        
-        # Update the title with current activity and rate
-        rate_per_hour = accumulated_calories * 360  # Convert 10-second accumulated rate to per hour
-        ax_calories.set_title(f'Calories Burned (Activity: {current_prediction}, Rate: {rate_per_hour:.1f} kcal/hour)')
-        
-        # Reset accumulated calories for next interval
+        calorie_times[-1] = elapsed_time_in_minutes
+        # グラフの表示範囲を調整（直近のデータを表示）
+        if elapsed_time_in_minutes > CALORIE_WINDOW/6:  # 10分以上経過したら表示範囲をスクロール
+            ax_calories.set_xlim(elapsed_time_in_minutes - CALORIE_WINDOW/6, elapsed_time_in_minutes)
         accumulated_calories = 0
         last_calorie_time = current_time
 
+    calorie_line.set_data(calorie_times, calorie_data)
     return all_lines + [ax_image_artist, calorie_line]
 
 ani = FuncAnimation(fig, update, init_func=init, blit=True, interval=10, cache_frame_data=False)
