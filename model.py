@@ -44,7 +44,7 @@ class IMUPredictor(torch.nn.Module):
     def __init__(self, num_classes, feature_dim=2, embed_dim=64, num_heads=4, num_layers=2):
         super(IMUPredictor, self).__init__()
         self.feature_tokenizer = torch.nn.Linear(feature_dim, embed_dim)
-        self.batch_norm1 = torch.nn.BatchNorm1d(embed_dim)
+        self.layer_norm1 = torch.nn.LayerNorm(embed_dim)
         self.predictor = torch.nn.TransformerEncoder(
             torch.nn.TransformerEncoderLayer(
                 d_model=embed_dim,
@@ -56,7 +56,7 @@ class IMUPredictor(torch.nn.Module):
             num_layers=num_layers,
         )
         self.pool = torch.nn.AdaptiveAvgPool1d(1)
-        self.batch_norm2 = torch.nn.BatchNorm1d(embed_dim)
+        self.layer_norm2 = torch.nn.LayerNorm(embed_dim)
         self.output_layer = torch.nn.Linear(embed_dim, num_classes)
         self.act = torch.nn.SiLU()
         self.dropout = torch.nn.Dropout(0.1)
@@ -67,16 +67,15 @@ class IMUPredictor(torch.nn.Module):
         return: (batch_size, num_classes)
         """
         x = self.feature_tokenizer(x)  # (batch, seq_len, embed_dim)
-        x = x.permute(0, 2, 1)  # (batch, embed_dim, seq_len)
-        x = self.batch_norm1(x)
-        x = x.permute(2, 0, 1)  # (seq_len, batch, embed_dim)
+        x = self.layer_norm1(x)  # (batch, seq_len, embed_dim)
+        x = x.permute(1, 0, 2)  # (seq_len, batch, embed_dim)
 
         x = self.predictor(x)  # (seq_len, batch, embed_dim)
         x = x.permute(1, 2, 0)  # (batch, embed_dim, seq_len)
         x = self.pool(x)  # (batch, embed_dim, 1)
         x = x.squeeze(-1)  # (batch, embed_dim)
 
-        x = self.batch_norm2(x)
+        x = self.layer_norm2(x)
         x = self.act(x)
         x = self.dropout(x)
         x = self.output_layer(x)  # (batch, num_classes)
@@ -91,16 +90,16 @@ class IMUPredictor(torch.nn.Module):
         self.load_state_dict(torch.load(path))
 
 class IMULinearRegression(torch.nn.Module):
-    def __init__(self, num_classes, window_size=60):
+    def __init__(self, num_classes, window_size=60, num_features=2):
         super(IMULinearRegression, self).__init__()
         self.window_size = window_size
-        self.num_features = window_size * 2
+        self.num_features = num_features * window_size
         self.linear = torch.nn.Linear(self.num_features, num_classes)
 
     def forward(self, x):
         # x shape: (batch_size, seq_len, feature_dim=2)
         batch_size, seq_len, feat_dim = x.shape
-        x = x.view(batch_size, seq_len * feat_dim)
+        x = x.reshape(batch_size, seq_len * feat_dim)
         x = self.linear(x)
         return x
 

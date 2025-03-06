@@ -92,7 +92,7 @@ def main(model_name):
     try:
         # Parameters
         WINDOW_SIZE = 30
-        BATCH_SIZE = 32
+        BATCH_SIZE = 16 # 32
         FEATURE_DIM = 2*4
         NUM_CLASSES = 3  # run, walk, something
         DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -116,11 +116,11 @@ def main(model_name):
         # Model
         print("\nInitializing model...")
         if model_name == "transformer":
-            model = IMUPredictor(num_classes=NUM_CLASSES, feature_dim=FEATURE_DIM).to(DEVICE)
+            model = IMUPredictor(num_classes=NUM_CLASSES, feature_dim=FEATURE_DIM, embed_dim=128, num_heads=8, num_layers=4).to(DEVICE)
         elif model_name == "conv":
             model = IMUConvNet(num_classes=NUM_CLASSES, window_size=WINDOW_SIZE, feature_dim=FEATURE_DIM).to(DEVICE)
         elif model_name == "linear":
-            model = IMULinearRegression(num_classes=NUM_CLASSES, window_size=WINDOW_SIZE).to(DEVICE)
+            model = IMULinearRegression(num_classes=NUM_CLASSES, window_size=WINDOW_SIZE, num_features=FEATURE_DIM).to(DEVICE)
         else:
             raise ValueError(f"Invalid model name: {model_name}")
         print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
@@ -131,9 +131,9 @@ def main(model_name):
         raise
 
 if __name__ == '__main__':
-    # model_name = "transformer"
+    model_name = "transformer"
     # model_name = "linear"
-    model_name = "conv"
+    # model_name = "conv"
     try:
         main(model_name)
     except KeyboardInterrupt:

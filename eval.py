@@ -17,7 +17,7 @@ def main(model_name):
     elif model_name == "conv":
         model = IMUConvNet(num_classes=NUM_CLASSES, window_size=WINDOW_SIZE, feature_dim=FEATURE_DIM).to(DEVICE)
     elif model_name == "linear":
-        model = IMULinearRegression(num_classes=NUM_CLASSES, window_size=WINDOW_SIZE).to(DEVICE)
+        model = IMULinearRegression(num_classes=NUM_CLASSES, window_size=WINDOW_SIZE, num_features=FEATURE_DIM).to(DEVICE)
     else:
         raise ValueError(f"Invalid model name: {model_name}")
 
@@ -70,6 +70,6 @@ def main(model_name):
 
 if __name__ == '__main__':
     # model_name = "linear"
-    # model_name = "transformer"
-    model_name = "conv"
+    model_name = "transformer"
+    # model_name = "conv"
     main(model_name)
