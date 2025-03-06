@@ -30,6 +30,9 @@ id_colors = {
     3: 'green',
 }
 
+# Global flag for legend creation
+legend_created = False
+
 # Initialize UDP socket
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 sock.bind((UDP_IP, UDP_PORT))
@@ -116,7 +119,7 @@ def preprocess_data(all_data_buffer):
     return np.array(features)  # shape: (WINDOW_SIZE, 8)
 
 def init():
-    global ax_image_artist, calorie_line
+    global ax_image_artist, calorie_line, legend_created
     ax.set_xlim(0, 3)  # 3秒間のデータを表示
     ax.set_ylim(0, 2)  # ノルムは正の値なので範囲を調整
     ax.set_xlabel("Time (s)")
@@ -133,9 +136,15 @@ def init():
     ax_calories.set_xlabel("Time (steps of 10 seconds)")
     ax_calories.set_ylabel("Calories")
     ax_calories.grid(True)
-    calorie_line, = ax_calories.plot([], [], 'r-', label='Calories/10s', linewidth=2)
-    # Create legend once during initialization
-    ax_calories.legend(loc='upper right', frameon=True, fancybox=True, shadow=True)
+    
+    # Create line with label only for the first time
+    if not legend_created:
+        calorie_line, = ax_calories.plot([], [], 'r-', label='Calories/10s', linewidth=2)
+        ax_calories.legend(loc='upper right', frameon=True, fancybox=True, shadow=True)
+        legend_created = True
+    else:
+        calorie_line, = ax_calories.plot([], [], 'r-', label='_nolegend_', linewidth=2)
+    
     # Adjust layout to prevent label overlap
     plt.tight_layout()
     return [ax_image_artist, calorie_line]
