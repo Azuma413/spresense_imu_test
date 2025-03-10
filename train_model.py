@@ -88,12 +88,12 @@ def train(model, train_loader, valid_loader, num_epochs=50, device='cuda', save_
     plt.savefig(f'images/accuracy_plot_{model_type}.png')
     plt.close()
 
-def main(model_name):
+def main(model_name, ids):
     try:
         # Parameters
         WINDOW_SIZE = 30
         BATCH_SIZE = 16 # 32
-        FEATURE_DIM = 2*4
+        FEATURE_DIM = 2*len(ids) # 2 * number of sensors
         NUM_CLASSES = 3  # run, walk, something
         DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
         # データパス（CSVファイルのみ使用）
@@ -107,8 +107,8 @@ def main(model_name):
         ]
         print("\nInitializing datasets...")
         # Dataset and DataLoader
-        train_dataset = IMUDataset(train_data_paths, window_size=WINDOW_SIZE)
-        valid_dataset = IMUDataset(eval_data_paths, window_size=WINDOW_SIZE)
+        train_dataset = IMUDataset(train_data_paths, window_size=WINDOW_SIZE, ids=ids)
+        valid_dataset = IMUDataset(eval_data_paths, window_size=WINDOW_SIZE, ids=ids)
         print(f"Train dataset size: {len(train_dataset)}")
         print(f"Validation dataset size: {len(valid_dataset)}")
         train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
@@ -125,17 +125,20 @@ def main(model_name):
             raise ValueError(f"Invalid model name: {model_name}")
         print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
         # Training
-        train(model, train_loader, valid_loader, num_epochs=10, device=DEVICE, save_path=f'models/best_{model_name}_model.pth')
+        # train(model, train_loader, valid_loader, num_epochs=10, device=DEVICE, save_path=f'models/best_{model_name}_model.pth')
+        save_path = f'models/{model_name}_ids{"-".join(map(str, ids))}_model.pth'
+        train(model, train_loader, valid_loader, num_epochs=10, device=DEVICE, save_path=save_path)
     except Exception as e:
         print(f"\nError during training: {str(e)}")
         raise
 
 if __name__ == '__main__':
-    model_name = "transformer"
+    # model_name = "transformer"
     # model_name = "linear"
-    # model_name = "conv"
+    model_name = "conv"
+    ids = [2, 3]
     try:
-        main(model_name)
+        main(model_name, ids)
     except KeyboardInterrupt:
         print("\nTraining interrupted by user")
     except Exception as e:

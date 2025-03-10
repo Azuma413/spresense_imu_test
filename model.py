@@ -5,10 +5,11 @@ from torch.utils.data import Dataset
 import numpy as np
 
 class IMUDataset(Dataset):
-    def __init__(self, data_paths, window_size=60):
+    def __init__(self, data_paths, window_size=60, ids=None):
         if window_size < 1:
             raise ValueError("window_size must be positive")
         self.window_size = window_size
+        self.ids = ids
         # Label mapping
         self.label_to_idx = {
             'run': 0,
@@ -23,6 +24,13 @@ class IMUDataset(Dataset):
                 print("ID Num: ", (len(df.columns) - 1) // 2)
                 # Convert string labels to integers
                 df['Label'] = df['Label'].map(self.label_to_idx)
+                # Filter columns based on specified IDs if provided
+                if self.ids is not None:
+                    columns_to_keep = []
+                    for id in self.ids:
+                        columns_to_keep.extend([f'AccelNorm_{id}', f'GyroNorm_{id}'])
+                    columns_to_keep.append('Label')
+                    df = df[columns_to_keep]
                 dfs.append(df)
             except Exception as e:
                 print(f"Error processing {path}: {str(e)}")

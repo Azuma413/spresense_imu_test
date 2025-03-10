@@ -6,11 +6,11 @@ from sklearn.metrics import confusion_matrix
 import seaborn as sns
 
 WINDOW_SIZE = 30
-FEATURE_DIM = 2*4
 NUM_CLASSES = 3
 
-def main(model_name):
+def main(model_name, ids):
     DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
+    FEATURE_DIM = 2*len(ids)  # 2 * number of sensors
     # Initialize model
     if model_name == "transformer":
         model = IMUPredictor(num_classes=NUM_CLASSES, feature_dim=FEATURE_DIM).to(DEVICE)
@@ -21,12 +21,14 @@ def main(model_name):
     else:
         raise ValueError(f"Invalid model name: {model_name}")
 
-    model.load(f"models/best_{model_name}_model.pth")
+    # model.load(f"models/best_{model_name}_model.pth")
+    path = f'models/{model_name}_ids{"-".join(map(str, ids))}_model.pth'
+    model.load(path)
     print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
     model.eval()
 
     # Initialize dataset
-    dataset = IMUDataset(['data/eval_labels.csv'], window_size=WINDOW_SIZE)
+    dataset = IMUDataset(['data/eval_labels.csv'], window_size=WINDOW_SIZE, ids=ids)
     idx_to_label = {v: k for k, v in dataset.label_to_idx.items()}
 
     correct = 0
@@ -64,12 +66,14 @@ def main(model_name):
     plt.xlabel('Predicted')
     plt.ylabel('True')
     plt.tight_layout()
-    plt.savefig(f'images/confusion_matrix_{model_name}.png')
+    model_type = path.split('_')[-2]  # Extract model type from save path
+    plt.savefig(f'images/confusion_matrix_{model_type}.png')
     plt.close()
     print(f"Confusion matrix has been saved as 'confusion_matrix_{model_name}.png'")
 
 if __name__ == '__main__':
     # model_name = "linear"
-    model_name = "transformer"
-    # model_name = "conv"
-    main(model_name)
+    # model_name = "transformer"
+    model_name = "conv"
+    ids = [2, 3]
+    main(model_name, ids)
