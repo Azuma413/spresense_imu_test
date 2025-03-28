@@ -1,0 +1,3 @@
+multi_imu.hppとism330dhcx.hppにはそれぞれ互換性のある形でIMUのラッパー実装されており、multi_imu_test.inoで選択できるようにする。
+filter.hppには位置推定用のフィルタを実装する
+udp_send.hppはPCへ位置情報を送信するための物。
