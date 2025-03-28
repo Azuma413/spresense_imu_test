@@ -10,9 +10,9 @@
 // センサーとフィルタのインスタンス
 Madgwick MadgwickFilter;
 MultiIMU imu;
-LowPassFilter lpf(0.1f);            // ローパスフィルタ（カットオフ周波数を調整）
-KalmanFilter kf(0.01f, 0.1f, 0.01f, 0.1f);  // カルマンフィルタ
-ZeroVelocityDetector zvd(0.05f, 0.1f, 50);  // 静止状態検出器
+LowPassFilter lpf(20.0f);           // ローパスフィルタ（カットオフ周波数20Hz）
+KalmanFilter kf(0.001f, 0.01f, 0.001f, 0.05f);  // カルマンフィルタ
+ZeroVelocityDetector zvd(0.1f, 0.2f, 20);  // 静止状態検出器
 
 // データ配列
 float data[MultiIMU::DATA_LENGTH];           // センサーデータ
@@ -23,28 +23,56 @@ float world_acc[3] = {0, 0, 0};             // 世界座標系の加速度
 float last_update = 0;                       // 前回の更新時刻
 const float gravity = 9.80665;               // 重力加速度
 
-// 加速度を世界座標系に変換する関数
+// 加速度を世界座標系に変換し、重力を補正する関数
 void convertToWorldFrame(float ax, float ay, float az, float roll, float pitch, float yaw, float* world_acc) {
+    // エラーチェック
+    if (isnan(ax) || isnan(ay) || isnan(az) || 
+        isnan(roll) || isnan(pitch) || isnan(yaw)) {
+        world_acc[0] = world_acc[1] = world_acc[2] = 0.0f;
+        return;
+    }
+
     // ラジアンに変換
     float phi = roll * M_PI / 180.0;
     float theta = pitch * M_PI / 180.0;
     float psi = yaw * M_PI / 180.0;
     
-    // 回転行列を使って座標変換
-    world_acc[0] = ax * (cos(theta) * cos(psi)) +
-                   ay * (sin(phi) * sin(theta) * cos(psi) - cos(phi) * sin(psi)) +
-                   az * (cos(phi) * sin(theta) * cos(psi) + sin(phi) * sin(psi));
+    // DCM（Direction Cosine Matrix）の計算
+    float R[3][3];
     
-    world_acc[1] = ax * (cos(theta) * sin(psi)) +
-                   ay * (sin(phi) * sin(theta) * sin(psi) + cos(phi) * cos(psi)) +
-                   az * (cos(phi) * sin(theta) * sin(psi) - sin(phi) * cos(psi));
+    // DCMの要素を計算
+    R[0][0] = cos(theta) * cos(psi);
+    R[0][1] = cos(theta) * sin(psi);
+    R[0][2] = -sin(theta);
     
-    world_acc[2] = ax * (-sin(theta)) +
-                   ay * (sin(phi) * cos(theta)) +
-                   az * (cos(phi) * cos(theta));
+    R[1][0] = sin(phi) * sin(theta) * cos(psi) - cos(phi) * sin(psi);
+    R[1][1] = sin(phi) * sin(theta) * sin(psi) + cos(phi) * cos(psi);
+    R[1][2] = sin(phi) * cos(theta);
     
-    // 重力成分を除去
-    world_acc[2] -= gravity;
+    R[2][0] = cos(phi) * sin(theta) * cos(psi) + sin(phi) * sin(psi);
+    R[2][1] = cos(phi) * sin(theta) * sin(psi) - sin(phi) * cos(psi);
+    R[2][2] = cos(phi) * cos(theta);
+    
+    // 重力ベクトルを計算
+    float gravity_body[3];
+    gravity_body[0] = -gravity * sin(theta);
+    gravity_body[1] = gravity * sin(phi) * cos(theta);
+    gravity_body[2] = gravity * cos(phi) * cos(theta);
+    
+    // 重力を補正した加速度を計算
+    float acc_body[3] = {ax, ay, az};
+    float acc_compensated[3];
+    for (int i = 0; i < 3; i++) {
+        acc_compensated[i] = acc_body[i] - gravity_body[i];
+    }
+    
+    // 世界座標系に変換
+    for (int i = 0; i < 3; i++) {
+        world_acc[i] = 0;
+        for (int j = 0; j < 3; j++) {
+            world_acc[i] += R[i][j] * acc_compensated[j];
+        }
+    }
 }
 
 void setup() {
@@ -76,14 +104,31 @@ void loop() {
                           send_list[0], send_list[1], send_list[2],
                           world_acc);
 
-        // 4. 静止状態の検出
+        // エラーチェック
+        bool has_nan = false;
+        for (int i = 0; i < MultiIMU::DATA_LENGTH; i++) {
+            if (isnan(data[i])) {
+                has_nan = true;
+                break;
+            }
+        }
+        if (has_nan) {
+            return;
+        }
+
+        // 4. 静止状態の検出と処理
         if (zvd.isStatic(&filtered_acc[0], &data[3])) {
-            // 静止状態では速度をリセット
-            float zero_velocity[3] = {0, 0, 0};
-            float current_pos[3];
-            kf.getState(current_pos, nullptr, nullptr);
+            // 静止状態では速度のみをリセット
+            float current_pos[3], current_vel[3], current_bias[3];
+            kf.getState(current_pos, current_vel, current_bias);
+            
+            // 位置とバイアスは保持したまま、速度のみゼロにしてリセット
+            for (int i = 0; i < 3; i++) {
+                current_vel[i] = 0.0f;
+            }
+            
+            // カルマンフィルタを再初期化（位置とバイアスは保持）
             kf.reset();
-            // 現在位置を保持
             for (int i = 0; i < 3; i++) {
                 send_list[3+i] = current_pos[i];
             }
@@ -102,13 +147,33 @@ void loop() {
             }
         }
 
-        // 結果の出力
-        Serial.print("Position (m) - X: ");
-        Serial.print(send_list[3]);
-        Serial.print(" Y: ");
-        Serial.print(send_list[4]);
-        Serial.print(" Z: ");
-        Serial.println(send_list[5]);
+        // エラーチェック
+        bool valid_data = true;
+        for (int i = 0; i < 6; i++) {
+            if (isnan(send_list[i]) || isinf(send_list[i])) {
+                valid_data = false;
+                break;
+            }
+        }
+
+        if (valid_data) {
+            // 結果の出力
+            Serial.print("Position (m) - X: ");
+            Serial.print(send_list[3]);
+            Serial.print(" Y: ");
+            Serial.print(send_list[4]);
+            Serial.print(" Z: ");
+            Serial.println(send_list[5]);
+        } else {
+            Serial.println("Invalid data detected");
+            // 状態をリセット
+            kf.reset();
+            zvd.reset();
+            lpf.reset();
+            for (int i = 0; i < 6; i++) {
+                send_list[i] = 0.0f;
+            }
+        }
 
         last_update = current_time;
     }

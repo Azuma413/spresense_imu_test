@@ -1,6 +1,12 @@
 #ifndef LOW_PASS_FILTER_HPP
 #define LOW_PASS_FILTER_HPP
 
+#include <math.h>
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 class LowPassFilter {
 private:
     // フィルタパラメータ
@@ -9,16 +15,21 @@ private:
 
 public:
     // コンストラクタ
-    LowPassFilter(float alpha_param = 0.1f) : alpha(alpha_param) {
+    // alpha = dt / (RC + dt), RC = 1/(2π * fc)
+    // fc: カットオフ周波数(Hz), dt: サンプリング周期(s)
+    LowPassFilter(float cutoff_freq = 20.0f, float sample_period = 1.0f/960.0f) {
+        const float RC = 1.0f / (2.0f * M_PI * cutoff_freq);
+        alpha = sample_period / (RC + sample_period);
         filtered_value[0] = 0.0f;
         filtered_value[1] = 0.0f;
         filtered_value[2] = 0.0f;
     }
 
-    // フィルタ係数の設定
-    void setAlpha(float new_alpha) {
-        if (new_alpha > 0.0f && new_alpha < 1.0f) {
-            alpha = new_alpha;
+    // カットオフ周波数の設定
+    void setCutoffFreq(float cutoff_freq, float sample_period = 1.0f/960.0f) {
+        if (cutoff_freq > 0.0f) {
+            const float RC = 1.0f / (2.0f * M_PI * cutoff_freq);
+            alpha = sample_period / (RC + sample_period);
         }
     }
 

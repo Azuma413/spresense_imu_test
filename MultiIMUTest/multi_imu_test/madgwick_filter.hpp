@@ -55,17 +55,41 @@ private:
     }
 
 public:
+    // エラーチェック用の関数
+    bool isValidFloat(float value) {
+        return !isnan(value) && !isinf(value);
+    }
+
+    // エラー状態
+    bool error_state = false;
+
     // コンストラクタ - 初期値の設定
     Madgwick() : beta(betaDef), q0(1.0f), q1(0.0f), q2(0.0f), q3(0.0f),
-                 invSampleFreq(1.0f / sampleFreqDef), anglesComputed(0) {}
+                 invSampleFreq(1.0f / sampleFreqDef), anglesComputed(0), error_state(false) {}
 
     // サンプリング周波数の設定
-    void begin(float sampleFrequency) { 
-        invSampleFreq = 1.0f / sampleFrequency; 
+    void begin(float sampleFrequency) {
+        if (sampleFrequency > 0.0f) {
+            invSampleFreq = 1.0f / sampleFrequency;
+        }
+        error_state = false;
+        // クォータニオンの再初期化
+        q0 = 1.0f;
+        q1 = q2 = q3 = 0.0f;
+        anglesComputed = 0;
     }
 
     // 9DoFセンサーデータによるAHRSアルゴリズムの更新
     void update(float gx, float gy, float gz, float ax, float ay, float az, float mx, float my, float mz) {
+        if (error_state) return;
+
+        // 入力値のチェック
+        if (!isValidFloat(gx) || !isValidFloat(gy) || !isValidFloat(gz) ||
+            !isValidFloat(ax) || !isValidFloat(ay) || !isValidFloat(az) ||
+            !isValidFloat(mx) || !isValidFloat(my) || !isValidFloat(mz)) {
+            error_state = true;
+            return;
+        }
         float recipNorm;
         float s0, s1, s2, s3;
         float qDot1, qDot2, qDot3, qDot4;
@@ -170,6 +194,21 @@ public:
 
     // 6DoFセンサーデータによるIMUアルゴリズムの更新
     void updateIMU(float gx, float gy, float gz, float ax, float ay, float az) {
+        if (error_state) return;
+
+        // 入力値のチェック
+        if (!isValidFloat(gx) || !isValidFloat(gy) || !isValidFloat(gz) ||
+            !isValidFloat(ax) || !isValidFloat(ay) || !isValidFloat(az)) {
+            error_state = true;
+            return;
+        }
+
+        // 加速度の大きさをチェック
+        float acc_magnitude = sqrtf(ax * ax + ay * ay + az * az);
+        if (acc_magnitude < 0.01f || acc_magnitude > 20.0f) {
+            // 異常な加速度値
+            return;
+        }
         float recipNorm;
         float s0, s1, s2, s3;
         float qDot1, qDot2, qDot3, qDot4;
@@ -240,30 +279,44 @@ public:
 
     // オイラー角の取得（度単位）
     float getRoll() {
+        if (error_state) return 0.0f;
         if (!anglesComputed) computeAngles();
         return roll * 57.29578f;
     }
     float getPitch() {
+        if (error_state) return 0.0f;
         if (!anglesComputed) computeAngles();
         return pitch * 57.29578f;
     }
     float getYaw() {
+        if (error_state) return 0.0f;
         if (!anglesComputed) computeAngles();
         return yaw * 57.29578f + 180.0f;
     }
 
     // オイラー角の取得（ラジアン単位）
     float getRollRadians() {
+        if (error_state) return 0.0f;
         if (!anglesComputed) computeAngles();
         return roll;
     }
     float getPitchRadians() {
+        if (error_state) return 0.0f;
         if (!anglesComputed) computeAngles();
         return pitch;
     }
     float getYawRadians() {
+        if (error_state) return 0.0f;
         if (!anglesComputed) computeAngles();
         return yaw;
+    }
+
+    // エラー状態のリセット
+    void reset() {
+        error_state = false;
+        q0 = 1.0f;
+        q1 = q2 = q3 = 0.0f;
+        anglesComputed = 0;
     }
 };
 

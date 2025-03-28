@@ -5,8 +5,8 @@
 
 class KalmanFilter {
 private:
-    // 状態ベクトル [x, y, z, vx, vy, vz, ax_bias, ay_bias, az_bias]
-    static const int STATE_DIM = 9;
+    // 状態ベクトル [x, y, z, vx, vy, vz, vx_bias, vy_bias, vz_bias, ax_bias, ay_bias, az_bias]
+    static const int STATE_DIM = 12;
     float state[STATE_DIM] = {0};
     float P[STATE_DIM][STATE_DIM] = {0};  // 誤差共分散行列
 
@@ -17,8 +17,8 @@ private:
     float measurement_noise;   // 測定ノイズ
 
 public:
-    KalmanFilter(float pos_noise = 0.01f, float vel_noise = 0.1f, 
-                 float bias_noise = 0.01f, float meas_noise = 0.1f) 
+    KalmanFilter(float pos_noise = 0.001f, float vel_noise = 0.01f, 
+                 float bias_noise = 0.001f, float meas_noise = 0.05f) 
         : process_noise_pos(pos_noise)
         , process_noise_vel(vel_noise)
         , process_noise_bias(bias_noise)
@@ -32,14 +32,43 @@ public:
         }
     }
 
+    // 異常値のチェック
+    bool isValidFloat(float value) {
+        return !isnan(value) && !isinf(value);
+    }
+
+    // エラー状態
+    bool error_state = false;
+
     // 予測ステップ
     void predict(float dt) {
+        if (error_state || !isValidFloat(dt)) return;
+
+        // dt値の制限（異常な大きな値を防ぐ）
+        dt = fmin(dt, 0.1f);
+
         // 状態の更新
         // 位置の更新
         for (int i = 0; i < 3; i++) {
-            state[i] += state[i + 3] * dt + 
-                       0.5f * (state[i + 6]) * dt * dt;  // 位置 += 速度*dt + 0.5*加速度*dt^2
-            state[i + 3] += state[i + 6] * dt;          // 速度 += 加速度*dt
+            float vel_diff = state[i + 3] - state[i + 6];
+            float acc = state[i + 9];
+            
+            // 値の範囲チェック
+            if (!isValidFloat(vel_diff) || !isValidFloat(acc)) {
+                error_state = true;
+                return;
+            }
+
+            // 更新値の計算と範囲制限
+            float pos_delta = vel_diff * dt + 0.5f * acc * dt * dt;
+            float vel_delta = acc * dt;
+
+            // 異常な値の制限
+            pos_delta = fmax(fmin(pos_delta, 1.0f), -1.0f);
+            vel_delta = fmax(fmin(vel_delta, 1.0f), -1.0f);
+
+            state[i] += pos_delta;
+            state[i + 3] += vel_delta;
         }
 
         // 誤差共分散行列の更新
@@ -75,9 +104,10 @@ public:
                 }
                 // プロセスノイズの追加
                 if (i == j) {
-                    if (i < 3) new_P[i][j] += process_noise_pos;
-                    else if (i < 6) new_P[i][j] += process_noise_vel;
-                    else new_P[i][j] += process_noise_bias;
+            if (i < 3) new_P[i][j] += process_noise_pos;        // 位置
+            else if (i < 6) new_P[i][j] += process_noise_vel;   // 速度
+            else if (i < 9) new_P[i][j] += process_noise_bias;  // 速度バイアス
+            else new_P[i][j] += process_noise_bias;             // 加速度バイアス
                 }
             }
         }
@@ -92,24 +122,43 @@ public:
 
     // 更新ステップ
     void update(const float* acc_measurement) {
+        if (error_state) return;
+
+        // 入力値のチェック
+        for (int i = 0; i < 3; i++) {
+            if (!isValidFloat(acc_measurement[i])) {
+                error_state = true;
+                return;
+            }
+        }
         // 測定値と予測値の差
         float innovation[3];
+        // 加速度の測定値と予測値の差
+        float acc_innovation[3];
         for (int i = 0; i < 3; i++) {
-            innovation[i] = acc_measurement[i] - state[i + 6];  // 測定加速度 - 予測バイアス
+            acc_innovation[i] = acc_measurement[i] - state[i + 9];  // 測定加速度 - 予測加速度バイアス
+        }
+
+        // 速度の測定値と予測値の差（ZUPTが有効な場合）
+        float vel_innovation[3] = {0.0f, 0.0f, 0.0f};  // 静止状態では速度は0
+        for (int i = 0; i < 3; i++) {
+            vel_innovation[i] = 0.0f - (state[i + 3] - state[i + 6]);  // 目標速度(0) - (予測速度-速度バイアス)
         }
 
         // カルマンゲインの計算
-        float H[3][STATE_DIM] = {0};  // 観測行列
+        float H[6][STATE_DIM] = {0};  // 観測行列
         for (int i = 0; i < 3; i++) {
-            H[i][i + 6] = 1.0f;  // バイアスの観測
+            H[i][i + 9] = 1.0f;     // 加速度バイアスの観測
+            H[i + 3][i + 3] = 1.0f; // 速度の観測
+            H[i + 3][i + 6] = -1.0f;// 速度バイアスの観測
         }
 
         // S = H*P*H^T + R
-        float S[3][3] = {0};
-        float temp[3][STATE_DIM] = {0};
+        float S[6][6] = {0};
+        float temp[6][STATE_DIM] = {0};
 
         // H*P
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < 6; i++) {
             for (int j = 0; j < STATE_DIM; j++) {
                 for (int k = 0; k < STATE_DIM; k++) {
                     temp[i][j] += H[i][k] * P[k][j];
@@ -119,7 +168,7 @@ public:
 
         // (H*P)*H^T + R
         for (int i = 0; i < 3; i++) {
-            for (int j = 0; j < 3; j++) {
+            for (int j = 0; j < 6; j++) {
                 for (int k = 0; k < STATE_DIM; k++) {
                     S[i][j] += temp[i][k] * H[j][k];  // 転置を考慮
                 }
@@ -128,18 +177,18 @@ public:
         }
 
         // K = P*H^T*S^(-1)
-        float K[STATE_DIM][3] = {0};
-        float S_inv[3][3] = {0};
+        float K[STATE_DIM][6] = {0};
+        float S_inv[6][6] = {0};
         
-        // 3x3行列の逆行列計算（簡略化のため、対角成分のみを考慮）
-        for (int i = 0; i < 3; i++) {
+        // 6x6行列の逆行列計算（簡略化のため、対角成分のみを考慮）
+        for (int i = 0; i < 6; i++) {
             S_inv[i][i] = 1.0f / S[i][i];
         }
 
         // P*H^T
         float PH[STATE_DIM][3] = {0};
         for (int i = 0; i < STATE_DIM; i++) {
-            for (int j = 0; j < 3; j++) {
+            for (int j = 0; j < 6; j++) {
                 for (int k = 0; k < STATE_DIM; k++) {
                     PH[i][j] += P[i][k] * H[j][k];  // H^Tを考慮
                 }
@@ -148,7 +197,7 @@ public:
 
         // (P*H^T)*S^(-1)
         for (int i = 0; i < STATE_DIM; i++) {
-            for (int j = 0; j < 3; j++) {
+            for (int j = 0; j < 6; j++) {
                 K[i][j] = PH[i][j] * S_inv[j][j];
             }
         }
@@ -156,7 +205,8 @@ public:
         // 状態の更新
         for (int i = 0; i < STATE_DIM; i++) {
             for (int j = 0; j < 3; j++) {
-                state[i] += K[i][j] * innovation[j];
+                state[i] += K[i][j] * acc_innovation[j];
+                state[i] += K[i][j + 3] * vel_innovation[j];
             }
         }
 
@@ -190,10 +240,19 @@ public:
 
     // 状態のリセット
     void reset() {
+        error_state = false;
         for (int i = 0; i < STATE_DIM; i++) {
             state[i] = 0.0f;
             for (int j = 0; j < STATE_DIM; j++) {
-                P[i][j] = (i == j) ? 1.0f : 0.0f;
+                // 初期誤差共分散を適切に設定
+                if (i == j) {
+                    if (i < 3) P[i][j] = 0.1f;        // 位置の初期不確かさ
+                    else if (i < 6) P[i][j] = 0.01f;  // 速度の初期不確かさ
+                    else if (i < 9) P[i][j] = 0.01f;  // 速度バイアスの初期不確かさ
+                    else P[i][j] = 0.01f;             // 加速度バイアスの初期不確かさ
+                } else {
+                    P[i][j] = 0.0f;
+                }
             }
         }
     }
