@@ -75,12 +75,12 @@ private:
         // 最新のデータ（配列の最後のデータ）を使用
         const auto& latest = rawData[MAX_NFIFO - 1];
         
-        // 加速度データ
+        // 加速度データ m/s^2
         data[0] = latest.ax;
         data[1] = latest.ay;
         data[2] = latest.az;
         
-        // 角速度データ
+        // 角速度データ rad/s
         data[3] = latest.gx;
         data[4] = latest.gy;
         data[5] = latest.gz;

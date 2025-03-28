@@ -24,7 +24,7 @@
 class Madgwick {
 private:
     // アルゴリズムのゲイン
-    const float betaDef = 0.1f;            // 2 * proportional gain
+    const float betaDef = 0.5f; // 0.1f;            // 2 * proportional gain
     const float sampleFreqDef = 512.0f;    // サンプリング周波数（Hz）
 
     float beta;                  // アルゴリズムゲイン
@@ -174,11 +174,6 @@ public:
         float s0, s1, s2, s3;
         float qDot1, qDot2, qDot3, qDot4;
         float _2q0, _2q1, _2q2, _2q3, _4q0, _4q1, _4q2 ,_8q1, _8q2, q0q0, q1q1, q2q2, q3q3;
-
-        // ジャイロスコープの度/秒をラジアン/秒に変換
-        gx *= 0.0174533f;
-        gy *= 0.0174533f;
-        gz *= 0.0174533f;
 
         // ジャイロスコープからのクォータニオンの変化率
         qDot1 = 0.5f * (-q1 * gx - q2 * gy - q3 * gz);

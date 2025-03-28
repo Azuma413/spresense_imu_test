@@ -47,7 +47,7 @@ def init():
     for i in range(3):
         # 加速度グラフの設定
         axs[0, i].set_xlim(0, WINDOW_SIZE)
-        axs[0, i].set_ylim(-10, 10)
+        axs[0, i].set_ylim(-20, 20)
         line, = axs[0, i].plot([], [], 'b-')
         lines.append(line)
         axs[0, i].set_title(accel_titles[i])
@@ -57,7 +57,7 @@ def init():
 
         # 角速度グラフの設定
         axs[1, i].set_xlim(0, WINDOW_SIZE)
-        axs[1, i].set_ylim(-500, 500)  # 角速度範囲を拡大
+        axs[1, i].set_ylim(-250/180*np.pi, 250/180*np.pi)  # 角速度範囲を拡大
         line, = axs[1, i].plot([], [], 'r-')
         lines.append(line)
         axs[1, i].set_title(gyro_titles[i])
