@@ -55,26 +55,26 @@ public:
     bool getData(float* data) {
         if (data == nullptr) return false;
 
-        // 加速度データの読み取り
-        if (imu.checkAccelStatus()) {
+        // データの読み取り
+        if (imu.checkStatus()) {
             imu.getAccel(&accelData);
-        }
-
-        // ジャイロデータの読み取り
-        if (imu.checkGyroStatus()) {
             imu.getGyro(&gyroData);
         }
 
         // データの格納（MultiIMUと同じ形式）
-        // 加速度データ
-        data[0] = accelData.xData;
-        data[1] = accelData.yData;
-        data[2] = accelData.zData;
+        // 加速度データ m/s^2
+        // SparkFunライブラリ内部でmgに変換済み
+        const float ACC_CONVERSION = 0.001f * 9.81f;  // mg→m/s^2
+        data[0] = accelData.xData * ACC_CONVERSION;
+        data[1] = accelData.yData * ACC_CONVERSION;
+        data[2] = accelData.zData * ACC_CONVERSION;
 
-        // 角速度データ
-        data[3] = gyroData.xData;
-        data[4] = gyroData.yData;
-        data[5] = gyroData.zData;
+        // 角速度データ rad/s
+        // SparkFunライブラリ内部でmdpsに変換済み
+        const float GYRO_CONVERSION = 0.001f * 0.0174532925f;  // mdps→rad/s
+        data[3] = gyroData.xData * GYRO_CONVERSION;
+        data[4] = gyroData.yData * GYRO_CONVERSION;
+        data[5] = gyroData.zData * GYRO_CONVERSION;
 
         // 温度データ（ISM330DHCXの温度データ取得方法に応じて実装）
         // 注：この実装では仮の値として0を設定

@@ -2,6 +2,7 @@
 #define KALMAN_FILTER_HPP
 
 #include <math.h>
+#include <stdlib.h>
 
 class KalmanFilter {
 private:
@@ -17,8 +18,8 @@ private:
     float measurement_noise;   // 測定ノイズ
 
 public:
-    KalmanFilter(float pos_noise = 0.001f, float vel_noise = 0.01f, 
-                 float bias_noise = 0.001f, float meas_noise = 0.05f) 
+    KalmanFilter(float pos_noise = 0.0001f, float vel_noise = 0.001f, 
+                 float bias_noise = 0.00001f, float meas_noise = 0.1f) 
         : process_noise_pos(pos_noise)
         , process_noise_vel(vel_noise)
         , process_noise_bias(bias_noise)
@@ -48,27 +49,29 @@ public:
         dt = fmin(dt, 0.1f);
 
         // 状態の更新
-        // 位置の更新
         for (int i = 0; i < 3; i++) {
-            float vel_diff = state[i + 3] - state[i + 6];
-            float acc = state[i + 9];
-            
+            float true_velocity = state[i + 3] - state[i + 6];  // バイアス補正済みの速度
+            float true_acceleration = -state[i + 9];  // バイアス補正済みの加速度
+
             // 値の範囲チェック
-            if (!isValidFloat(vel_diff) || !isValidFloat(acc)) {
+            if (!isValidFloat(true_velocity) || !isValidFloat(true_acceleration)) {
                 error_state = true;
                 return;
             }
 
-            // 更新値の計算と範囲制限
-            float pos_delta = vel_diff * dt + 0.5f * acc * dt * dt;
-            float vel_delta = acc * dt;
+            // 状態の更新（運動方程式に基づく）
+            state[i] += true_velocity * dt + 0.5f * true_acceleration * dt * dt;  // 位置の更新
+            state[i + 3] += true_acceleration * dt;  // 速度の更新（生の速度）
 
-            // 異常な値の制限
-            pos_delta = fmax(fmin(pos_delta, 1.0f), -1.0f);
-            vel_delta = fmax(fmin(vel_delta, 1.0f), -1.0f);
-
-            state[i] += pos_delta;
-            state[i + 3] += vel_delta;
+            // バイアスの更新（指数減衰モデル）
+            float decay_rate = exp(-0.1f * dt);  // 減衰率
+            state[i + 6] *= decay_rate;  // 速度バイアスの減衰
+            state[i + 9] *= decay_rate;  // 加速度バイアスの減衰
+            
+            // バイアスのプロセスノイズ追加
+            float noise_std = sqrtf(process_noise_bias * dt);
+            state[i + 6] += noise_std * (0.01f);  // 速度バイアスへの小さなノイズ
+            state[i + 9] += noise_std * (0.1f);   // 加速度バイアスへの小さなノイズ
         }
 
         // 誤差共分散行列の更新
@@ -78,9 +81,18 @@ public:
         }
         // 運動方程式に基づく要素の設定
         for (int i = 0; i < 3; i++) {
-            F[i][i+3] = dt;                    // 位置-速度の関係
-            F[i][i+6] = 0.5f * dt * dt;       // 位置-加速度の関係
-            F[i+3][i+6] = dt;                 // 速度-加速度の関係
+            // 位置の更新（x = x + v*dt + 0.5*a*dt^2）
+            F[i][i+3] = dt;                     // 位置への速度の影響
+            F[i][i+9] = 0.5f * dt * dt;        // 位置への加速度の影響
+            
+            // 速度の更新（v = v + a*dt）
+            F[i+3][i+3] = 1.0f;                // 速度の保持
+            F[i+3][i+6] = -1.0f;               // 速度バイアスの影響
+            F[i+3][i+9] = dt;                  // 速度への加速度の影響
+
+            // バイアスの更新（ランダムウォークモデル）
+            F[i+6][i+6] = 1.0f;                // 速度バイアス
+            F[i+9][i+9] = 1.0f;                // 加速度バイアス
         }
 
         // P = F*P*F^T + Q
@@ -131,26 +143,33 @@ public:
                 return;
             }
         }
-        // 測定値と予測値の差
-        float innovation[3];
-        // 加速度の測定値と予測値の差
+
+        // イノベーション（測定値と予測値の差）の計算
         float acc_innovation[3];
+        float vel_innovation[3];
+
+        // 加速度のイノベーション計算
+        // 測定値には加速度バイアスが含まれている（測定値 = 真の加速度 + バイアス）
         for (int i = 0; i < 3; i++) {
-            acc_innovation[i] = acc_measurement[i] - state[i + 9];  // 測定加速度 - 予測加速度バイアス
+            acc_innovation[i] = acc_measurement[i] - state[i + 9];
         }
 
-        // 速度の測定値と予測値の差（ZUPTが有効な場合）
-        float vel_innovation[3] = {0.0f, 0.0f, 0.0f};  // 静止状態では速度は0
+        // 速度のイノベーション計算（ZUPTが有効な場合）
         for (int i = 0; i < 3; i++) {
-            vel_innovation[i] = 0.0f - (state[i + 3] - state[i + 6]);  // 目標速度(0) - (予測速度-速度バイアス)
+            // 真の速度の推定値を計算（測定速度 = 0）
+            float true_velocity = state[i + 3] - state[i + 6];  // 速度 - 速度バイアス
+            vel_innovation[i] = 0.0f - true_velocity;
         }
 
-        // カルマンゲインの計算
-        float H[6][STATE_DIM] = {0};  // 観測行列
+        // 観測行列の設定
+        float H[6][STATE_DIM] = {0};  // 6次元の観測（3次元加速度 + 3次元速度）
         for (int i = 0; i < 3; i++) {
-            H[i][i + 9] = 1.0f;     // 加速度バイアスの観測
-            H[i + 3][i + 3] = 1.0f; // 速度の観測
-            H[i + 3][i + 6] = -1.0f;// 速度バイアスの観測
+            // 加速度の観測（測定値 = 真の加速度 + バイアス）
+            H[i][i + 9] = 1.0f;    // 加速度バイアスの観測
+            
+            // 速度の観測（ZUPT: 測定値 = 0 = 真の速度）
+            H[i + 3][i + 3] = 1.0f;  // 速度の観測
+            H[i + 3][i + 6] = -1.0f; // 速度バイアスの観測
         }
 
         // S = H*P*H^T + R
@@ -167,12 +186,19 @@ public:
         }
 
         // (H*P)*H^T + R
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < 6; i++) {  // 修正：3から6に変更
             for (int j = 0; j < 6; j++) {
                 for (int k = 0; k < STATE_DIM; k++) {
-                    S[i][j] += temp[i][k] * H[j][k];  // 転置を考慮
+                    S[i][j] += temp[i][k] * H[j][k];
                 }
-                if (i == j) S[i][j] += measurement_noise;
+                // 測定ノイズの追加
+                if (i == j) {
+                    if (i < 3) {
+                        S[i][j] += measurement_noise;  // 加速度の測定ノイズ
+                    } else {
+                        S[i][j] += 0.01f * measurement_noise;  // 速度の測定ノイズ（ZUPTの場合は小さく）
+                    }
+                }
             }
         }
 
@@ -186,7 +212,7 @@ public:
         }
 
         // P*H^T
-        float PH[STATE_DIM][3] = {0};
+        float PH[STATE_DIM][6] = {0};  // 修正：[3]から[6]に変更
         for (int i = 0; i < STATE_DIM; i++) {
             for (int j = 0; j < 6; j++) {
                 for (int k = 0; k < STATE_DIM; k++) {
@@ -218,13 +244,29 @@ public:
             }
         }
 
+        // 誤差共分散の更新（P = (I - KH)P）
+        float I_KH[STATE_DIM][STATE_DIM] = {0};
+        
+        // I - KH の計算
+        for (int i = 0; i < STATE_DIM; i++) {
+            I_KH[i][i] = 1.0f;  // 単位行列の設定
+            for (int j = 0; j < STATE_DIM; j++) {
+                float kh_sum = 0.0f;
+                for (int k = 0; k < 6; k++) {  // 6次元の観測
+                    kh_sum += K[i][k] * H[k][j];
+                }
+                I_KH[i][j] -= kh_sum;
+            }
+        }
+
+        // P = (I-KH)P
         for (int i = 0; i < STATE_DIM; i++) {
             for (int j = 0; j < STATE_DIM; j++) {
-                float sum = 0;
-                for (int k = 0; k < 3; k++) {
-                    sum += K[i][k] * H[k][j];
+                float sum = 0.0f;
+                for (int k = 0; k < STATE_DIM; k++) {
+                    sum += I_KH[i][k] * temp_P[k][j];
                 }
-                P[i][j] = temp_P[i][j] - sum;
+                P[i][j] = sum;
             }
         }
     }
@@ -241,13 +283,31 @@ public:
     // 状態のリセット
     void reset() {
         error_state = false;
-        for (int i = 0; i < STATE_DIM; i++) {
+        float saved_vbias[3], saved_abias[3];
+        
+        // バイアスの保存
+        for (int i = 0; i < 3; i++) {
+            saved_vbias[i] = state[i + 6];
+            saved_abias[i] = state[i + 9];
+        }
+        
+        // 位置と速度のリセット（バイアスは保持）
+        for (int i = 0; i < 6; i++) {
             state[i] = 0.0f;
+        }
+        
+        // バイアスの復元
+        for (int i = 0; i < 3; i++) {
+            state[i + 6] = saved_vbias[i];
+            state[i + 9] = saved_abias[i];
+        }
+        
+        // 誤差共分散行列の再初期化
+        for (int i = 0; i < STATE_DIM; i++) {
             for (int j = 0; j < STATE_DIM; j++) {
-                // 初期誤差共分散を適切に設定
                 if (i == j) {
-                    if (i < 3) P[i][j] = 0.1f;        // 位置の初期不確かさ
-                    else if (i < 6) P[i][j] = 0.01f;  // 速度の初期不確かさ
+                    if (i < 3) P[i][j] = 0.001f;      // 位置の初期不確かさ
+                    else if (i < 6) P[i][j] = 0.001f; // 速度の初期不確かさ
                     else if (i < 9) P[i][j] = 0.01f;  // 速度バイアスの初期不確かさ
                     else P[i][j] = 0.01f;             // 加速度バイアスの初期不確かさ
                 } else {
