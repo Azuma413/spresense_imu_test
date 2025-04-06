@@ -97,16 +97,23 @@ public:
         float acc_var_sum = acc_var[0] + acc_var[1] + acc_var[2];
         float gyro_var_sum = gyro_var[0] + gyro_var[1] + gyro_var[2];
 
-        // 静止状態の判定（条件を少し厳しくする）
-        if (acc_diff < acc_threshold && 
-            gyro_magnitude < gyro_threshold && 
-            acc_var_sum < var_threshold && 
-            gyro_var_sum < var_threshold * 2.0f) {  // ジャイロの分散に対してより寛容
-            static_count++;
+        // 静止状態の判定基準を改善
+        bool is_static = (acc_diff < acc_threshold) && 
+                         (gyro_magnitude < gyro_threshold) && 
+                         (acc_var_sum < var_threshold) && 
+                         (gyro_var_sum < var_threshold * 2.0f);
+        
+        // 連続性を確保するためのヒステリシス処理
+        if (is_static) {
+            static_count += 2;  // 静止状態の場合、カウントを早く増やす
+            if (static_count > static_count_threshold * 1.5f) {
+                static_count = static_count_threshold * 1.5f;  // カウンタが大きくなりすぎないように制限
+            }
         } else {
-            if (static_count > 0) static_count--;  // カウンタを徐々に減少させる
+            static_count = static_count > 1 ? static_count - 1 : 0;  // 徐々に減少
         }
 
+        // 静止状態と判断するためのしきい値を超えたかどうか
         return static_count >= static_count_threshold;
     }
 

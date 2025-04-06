@@ -341,14 +341,28 @@ public:
         float R33 = 1.0f - 2.0f * (qx * qx + qy * qy);
         
         // 元の加速度データをセンサー座標系から世界座標系に変換
-        float world_ax = R11 * ax + R12 * ay + R13 * az;
-        float world_ay = R21 * ax + R22 * ay + R23 * az;
-        float world_az = R31 * ax + R32 * ay + R33 * az;
+        world_acc[0] = R11 * ax + R12 * ay + R13 * az;
+        world_acc[1] = R21 * ax + R22 * ay + R23 * az;
+        world_acc[2] = R31 * ax + R32 * ay + R33 * az;
+
+        // より正確な重力の打ち消し方法 - クォータニオンに基づいた実際の重力成分の計算
+        float gravity = 9.80665f;
         
-        // 重力を補正（世界座標系では重力は常に z 軸方向）
-        world_acc[0] = world_ax;
-        world_acc[1] = world_ay;
-        world_acc[2] = world_az - 9.80665f; // z 軸から重力加速度を減算
+        // 重力ベクトルをクォータニオンから計算
+        float gx = 2 * (qx * qz - qw * qy) * gravity;
+        float gy = 2 * (qw * qx + qy * qz) * gravity;
+        float gz = (qw * qw - qx * qx - qy * qy + qz * qz) * gravity;
+        
+        // 重力を補正（計算された重力成分を差し引く）
+        world_acc[0] -= gx;
+        world_acc[1] -= gy;
+        world_acc[2] -= gz;
+
+        // 非常に小さな値をゼロにする（ノイズ抑制）
+        float threshold = 0.03f;
+        if (fabsf(world_acc[0]) < threshold) world_acc[0] = 0.0f;
+        if (fabsf(world_acc[1]) < threshold) world_acc[1] = 0.0f;
+        if (fabsf(world_acc[2]) < threshold) world_acc[2] = 0.0f;
     }
 };
 

@@ -76,8 +76,8 @@ public:
             // 運動方程式に基づく状態の更新
             float acc = (acceleration != nullptr) ? (acceleration[i] - state[i + 6]) : 0.0f;  // バイアス補正済みの加速度
             
-            // 小さな加速度をフィルタリング（ノイズ除去）
-            float acc_threshold = 0.05f;  // 小さな加速度を無視する閾値
+            // 小さな加速度をフィルタリング（ノイズ除去）- 閾値を引き上げて感度を下げる
+            float acc_threshold = 0.1f;  // 小さな加速度を無視する閾値を増加
             if (fabsf(acc) < acc_threshold) {
                 acc = 0.0f;
             }
@@ -86,13 +86,13 @@ public:
             state[i + 3] += acc * dt;  // 速度の更新
 
             // バイアスの緩やかな減衰（システムの安定性を保つ）
-            float decay_rate = exp(-0.005f * dt);  // より緩やかな減衰率
+            float decay_rate = 0.9999f;  // 非常に緩やかな減衰率に変更（ほぼ減衰しない）
             state[i + 6] *= decay_rate;  // 加速度バイアスの減衰
         }
 
         // 誤差共分散行列の更新
         float F[STATE_DIM][STATE_DIM] = {0};  // システム行列
-        float decay_rate = exp(-0.005f * dt); // 状態更新で使った減衰率と同じ値を使う
+        float decay_rate = 0.9999f; // 状態更新で使った減衰率と同じ値を使う
 
         for (int i = 0; i < STATE_DIM; i++) {
             F[i][i] = 1.0f;  // 対角要素を1で初期化
