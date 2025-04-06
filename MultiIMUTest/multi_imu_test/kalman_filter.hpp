@@ -17,6 +17,21 @@ private:
     float process_noise_bias;  // バイアスのプロセスノイズ
     float measurement_noise;   // 測定ノイズ
 
+    // 行列の正値定符号性を保証
+    void ensureMatrixPositiveDefinite() {
+        for (int i = 0; i < STATE_DIM; i++) {
+            // 対角要素が正であることを確認
+            if (P[i][i] <= 0.0f) {
+                P[i][i] = 1e-6f;
+            }
+            
+            // 対称性を保証
+            for (int j = 0; j < i; j++) {
+                P[i][j] = P[j][i] = (P[i][j] + P[j][i]) * 0.5f;
+            }
+        }
+    }
+
 public:
     KalmanFilter(float pos_noise = 0.0001f, float vel_noise = 0.001f, 
                  float bias_noise = 0.00001f, float meas_noise = 0.1f) 
@@ -55,6 +70,27 @@ public:
         }
     }
 
+    // エラー状態の回復
+    void recoverFromError() {
+        if (error_state) {
+            // エラー状態をリセットし、状態共分散行列だけを再初期化
+            error_state = false;
+            
+            // 現在の状態ベクトルは保持しつつ、共分散行列を初期化
+            for (int i = 0; i < STATE_DIM; i++) {
+                for (int j = 0; j < STATE_DIM; j++) {
+                    P[i][j] = 0.0f;
+                }
+            }
+            
+            // 対角要素の設定 - リカバリー時は不確かさを大きく設定
+            for (int i = 0; i < 3; i++) {
+                P[i][i] = 1.0f;                // 位置の不確かさ
+                P[i+3][i+3] = 1.0f;            // 速度の不確かさ
+                P[i+6][i+6] = 10.0f;           // バイアスの不確かさ
+            }
+        }
+    }
 
     // 予測ステップ
     void predict(float dt, const float* acceleration = nullptr) {
@@ -139,6 +175,155 @@ public:
                 P[i][j] = new_P[i][j];
             }
         }
+
+        // 数値的安定性を保証
+        ensureMatrixPositiveDefinite();
+    }
+
+    // 測定更新ステップ (新機能)
+    void update(const float* position_measurement) {
+        if (error_state || position_measurement == nullptr) return;
+        
+        // 測定が有効かチェック
+        for (int i = 0; i < 3; i++) {
+            if (!isValidFloat(position_measurement[i])) {
+                error_state = true;
+                return;
+            }
+        }
+
+        // 観測行列H (位置のみ観測)
+        float H[3][STATE_DIM] = {0};
+        for (int i = 0; i < 3; i++) {
+            H[i][i] = 1.0f;  // 位置の観測
+        }
+        
+        // 測定残差計算
+        float y[3];
+        for (int i = 0; i < 3; i++) {
+            y[i] = position_measurement[i] - state[i];
+        }
+        
+        // 残差共分散 S = H*P*H^T + R
+        float S[3][3] = {0};
+        float HPH[3][3] = {0};
+        
+        // HP計算
+        float HP[3][STATE_DIM] = {0};
+        for (int i = 0; i < 3; i++) {
+            for (int j = 0; j < STATE_DIM; j++) {
+                for (int k = 0; k < STATE_DIM; k++) {
+                    HP[i][j] += H[i][k] * P[k][j];
+                }
+            }
+        }
+        
+        // HPH^T計算
+        for (int i = 0; i < 3; i++) {
+            for (int j = 0; j < 3; j++) {
+                for (int k = 0; k < STATE_DIM; k++) {
+                    HPH[i][j] += HP[i][k] * H[j][k];  // 転置を考慮
+                }
+            }
+        }
+        
+        // S = HPH^T + R
+        for (int i = 0; i < 3; i++) {
+            for (int j = 0; j < 3; j++) {
+                S[i][j] = HPH[i][j];
+                if (i == j) {
+                    S[i][j] += measurement_noise;
+                }
+            }
+        }
+        
+        // カルマンゲイン K = P*H^T*S^(-1)
+        float K[STATE_DIM][3] = {0};
+        
+        // まず P*H^T を計算
+        float PHt[STATE_DIM][3] = {0};
+        for (int i = 0; i < STATE_DIM; i++) {
+            for (int j = 0; j < 3; j++) {
+                for (int k = 0; k < STATE_DIM; k++) {
+                    PHt[i][j] += P[i][k] * H[j][k];  // 転置を考慮
+                }
+            }
+        }
+        
+        // S^-1の計算（3x3行列の逆行列）
+        float detS = S[0][0] * (S[1][1] * S[2][2] - S[1][2] * S[2][1])
+                   - S[0][1] * (S[1][0] * S[2][2] - S[1][2] * S[2][0])
+                   + S[0][2] * (S[1][0] * S[2][1] - S[1][1] * S[2][0]);
+                   
+        // 逆行列の存在チェック
+        if (fabsf(detS) < 1e-10f) {
+            // 特異行列になっている場合、更新をスキップ
+            return;
+        }
+        
+        float invDetS = 1.0f / detS;
+        
+        float invS[3][3];
+        invS[0][0] = (S[1][1] * S[2][2] - S[1][2] * S[2][1]) * invDetS;
+        invS[0][1] = (S[0][2] * S[2][1] - S[0][1] * S[2][2]) * invDetS;
+        invS[0][2] = (S[0][1] * S[1][2] - S[0][2] * S[1][1]) * invDetS;
+        invS[1][0] = (S[1][2] * S[2][0] - S[1][0] * S[2][2]) * invDetS;
+        invS[1][1] = (S[0][0] * S[2][2] - S[0][2] * S[2][0]) * invDetS;
+        invS[1][2] = (S[0][2] * S[1][0] - S[0][0] * S[1][2]) * invDetS;
+        invS[2][0] = (S[1][0] * S[2][1] - S[1][1] * S[2][0]) * invDetS;
+        invS[2][1] = (S[0][1] * S[2][0] - S[0][0] * S[2][1]) * invDetS;
+        invS[2][2] = (S[0][0] * S[1][1] - S[0][1] * S[1][0]) * invDetS;
+        
+        // カルマンゲイン K = PH^T * S^-1 の計算
+        for (int i = 0; i < STATE_DIM; i++) {
+            for (int j = 0; j < 3; j++) {
+                for (int k = 0; k < 3; k++) {
+                    K[i][j] += PHt[i][k] * invS[k][j];
+                }
+            }
+        }
+        
+        // 状態更新 x = x + K*y
+        for (int i = 0; i < STATE_DIM; i++) {
+            for (int j = 0; j < 3; j++) {
+                state[i] += K[i][j] * y[j];
+            }
+        }
+        
+        // 共分散更新 P = (I - K*H) * P
+        float I_KH[STATE_DIM][STATE_DIM] = {0};
+        
+        // I - K*H の計算
+        for (int i = 0; i < STATE_DIM; i++) {
+            I_KH[i][i] = 1.0f;  // 単位行列Iの対角要素
+            for (int j = 0; j < STATE_DIM; j++) {
+                float KH_ij = 0.0f;
+                for (int k = 0; k < 3; k++) {
+                    KH_ij += K[i][k] * H[k][j];
+                }
+                I_KH[i][j] -= KH_ij;
+            }
+        }
+        
+        // (I - K*H) * P の計算
+        float new_P[STATE_DIM][STATE_DIM] = {0};
+        for (int i = 0; i < STATE_DIM; i++) {
+            for (int j = 0; j < STATE_DIM; j++) {
+                for (int k = 0; k < STATE_DIM; k++) {
+                    new_P[i][j] += I_KH[i][k] * P[k][j];
+                }
+            }
+        }
+        
+        // 更新された共分散行列の保存
+        for (int i = 0; i < STATE_DIM; i++) {
+            for (int j = 0; j < STATE_DIM; j++) {
+                P[i][j] = new_P[i][j];
+            }
+        }
+        
+        // 数値的安定性の確保
+        ensureMatrixPositiveDefinite();
     }
 
     // 状態の取得
