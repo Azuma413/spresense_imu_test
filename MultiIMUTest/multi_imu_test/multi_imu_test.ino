@@ -9,8 +9,10 @@
 // センサーとフィルタのインスタンス
 Madgwick MadgwickFilter;
 MultiIMU imu;
-KalmanFilter kf(0.001f, 0.01f, 0.001f, 0.05f);  // カルマンフィルタ
-ZeroVelocityDetector zvd(0.1f, 0.2f, 20);  // 静止状態検出器
+// プロセスノイズパラメータを調整：より小さな値にして位置ドリフトを抑制
+KalmanFilter kf(0.0001f, 0.0005f, 0.0001f, 0.05f);  // カルマンフィルタ
+// 静止状態検出の閾値を調整：より感度を上げて静止状態をしっかり検出
+ZeroVelocityDetector zvd(0.15f, 0.15f, 15);  // 静止状態検出器
 
 // データ配列
 float data[MultiIMU::DATA_LENGTH];           // センサーデータ
@@ -19,9 +21,10 @@ float send_list[6] = {0,0,0,0,0,0};         // Roll, Pitch, Yaw, X(cm), Y(cm), Z
 float world_acc[3] = {0, 0, 0};             // 世界座標系の加速度
 float last_update = 0;                       // 前回の更新時刻
 const float gravity = 9.80665;               // 重力加速度
-const int INIT_SAMPLES = 100;               // 初期化用サンプル数
+const int INIT_SAMPLES = 150;               // 初期化用サンプル数を増やして安定性向上
 int init_counter = 0;                       // 初期化カウンタ
 float init_acc[3] = {0};                    // 初期化用加速度累積
+float init_gyro[3] = {0};                   // 初期化用ジャイロ累積
 
 void setup() {
     Serial.begin(115200);

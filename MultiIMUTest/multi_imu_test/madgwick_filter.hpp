@@ -329,27 +329,26 @@ public:
         // クォータニオンを使用して回転を適用
         float qw = q0, qx = q1, qy = q2, qz = q3;
         
-        // 重力ベクトルの計算（センサー座標系）
-        // 世界座標系の重力ベクトル (0, 0, g) をクォータニオンで回転させる
-        float gx = 2 * (qx * qz + qw * qy) * 9.80665f; // X軸周りの回転成分
-        float gy = 2 * (qy * qz - qw * qx) * 9.80665f; // Y軸周りの回転成分
-        float gz = (qw * qw - qx * qx - qy * qy + qz * qz) * 9.80665f; // Z軸成分
+        // センサー座標系から世界座標系への変換行列の要素を計算
+        float R11 = 1.0f - 2.0f * (qy * qy + qz * qz);
+        float R12 = 2.0f * (qx * qy - qw * qz);
+        float R13 = 2.0f * (qx * qz + qw * qy);
+        float R21 = 2.0f * (qx * qy + qw * qz);
+        float R22 = 1.0f - 2.0f * (qx * qx + qz * qz);
+        float R23 = 2.0f * (qy * qz - qw * qx);
+        float R31 = 2.0f * (qx * qz - qw * qy);
+        float R32 = 2.0f * (qy * qz + qw * qx);
+        float R33 = 1.0f - 2.0f * (qx * qx + qy * qy);
         
-        // 重力を補正
-        float acc_no_gravity[3] = {ax - gx, ay - gy, az - gz};
+        // 元の加速度データをセンサー座標系から世界座標系に変換
+        float world_ax = R11 * ax + R12 * ay + R13 * az;
+        float world_ay = R21 * ax + R22 * ay + R23 * az;
+        float world_az = R31 * ax + R32 * ay + R33 * az;
         
-        // 世界座標系に変換
-        world_acc[0] = (1 - 2*qy*qy - 2*qz*qz) * acc_no_gravity[0] + 
-                      (2*qx*qy - 2*qz*qw) * acc_no_gravity[1] + 
-                      (2*qx*qz + 2*qy*qw) * acc_no_gravity[2];
-        
-        world_acc[1] = (2*qx*qy + 2*qz*qw) * acc_no_gravity[0] + 
-                      (1 - 2*qx*qx - 2*qz*qz) * acc_no_gravity[1] + 
-                      (2*qy*qz - 2*qx*qw) * acc_no_gravity[2];
-        
-        world_acc[2] = (2*qx*qz - 2*qy*qw) * acc_no_gravity[0] + 
-                      (2*qy*qz + 2*qx*qw) * acc_no_gravity[1] + 
-                      (1 - 2*qx*qx - 2*qy*qy) * acc_no_gravity[2];
+        // 重力を補正（世界座標系では重力は常に z 軸方向）
+        world_acc[0] = world_ax;
+        world_acc[1] = world_ay;
+        world_acc[2] = world_az - 9.80665f; // z 軸から重力加速度を減算
     }
 };
 
