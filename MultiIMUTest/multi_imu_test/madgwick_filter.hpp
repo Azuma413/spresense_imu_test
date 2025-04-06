@@ -24,7 +24,7 @@
 class Madgwick {
 private:
     // アルゴリズムのゲイン
-    const float betaDef = 0.5f; // 0.1f;            // 2 * proportional gain
+    const float betaDef = 1.0f;            // 2 * proportional gain
     const float sampleFreqDef = 512.0f;    // サンプリング周波数（Hz）
 
     float beta;                  // アルゴリズムゲイン
@@ -317,6 +317,38 @@ public:
         q0 = 1.0f;
         q1 = q2 = q3 = 0.0f;
         anglesComputed = 0;
+    }
+
+    // クォータニオンを使用して加速度を世界座標系に変換
+    void convertAccelToWorldFrame(float ax, float ay, float az, float* world_acc) {
+        if (error_state) {
+            world_acc[0] = world_acc[1] = world_acc[2] = 0.0f;
+            return;
+        }
+
+        // クォータニオンを使用して回転を適用
+        float qw = q0, qx = q1, qy = q2, qz = q3;
+        
+        // 重力ベクトルの計算（センサー座標系）
+        float gx = 2 * (qx * qz - qw * qy) * 9.80665f;
+        float gy = 2 * (qw * qx + qy * qz) * 9.80665f;
+        float gz = (qw * qw - qx * qx - qy * qy + qz * qz) * 9.80665f;
+        
+        // 重力を補正
+        float acc_no_gravity[3] = {ax - gx, ay - gy, az - gz};
+        
+        // 世界座標系に変換
+        world_acc[0] = (1 - 2*qy*qy - 2*qz*qz) * acc_no_gravity[0] + 
+                      (2*qx*qy - 2*qz*qw) * acc_no_gravity[1] + 
+                      (2*qx*qz + 2*qy*qw) * acc_no_gravity[2];
+        
+        world_acc[1] = (2*qx*qy + 2*qz*qw) * acc_no_gravity[0] + 
+                      (1 - 2*qx*qx - 2*qz*qz) * acc_no_gravity[1] + 
+                      (2*qy*qz - 2*qx*qw) * acc_no_gravity[2];
+        
+        world_acc[2] = (2*qx*qz - 2*qy*qw) * acc_no_gravity[0] + 
+                      (2*qy*qz + 2*qx*qw) * acc_no_gravity[1] + 
+                      (1 - 2*qx*qx - 2*qy*qy) * acc_no_gravity[2];
     }
 };
 

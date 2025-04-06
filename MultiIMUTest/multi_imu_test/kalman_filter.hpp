@@ -41,6 +41,27 @@ public:
     // エラー状態
     bool error_state = false;
 
+    // 状態の直接設定
+    void setState(const float* position, const float* velocity, const float* bias) {
+        if (position) {
+            for (int i = 0; i < 3; i++) {
+                state[i] = position[i];
+            }
+        }
+        if (velocity) {
+            for (int i = 0; i < 3; i++) {
+                state[i + 3] = velocity[i];
+            }
+        }
+        if (bias) {
+            for (int i = 0; i < 3; i++) {
+                state[i + 6] = bias[i];  // 速度バイアス
+                state[i + 9] = 0.0f;     // 加速度バイアスは0にリセット
+            }
+        }
+    }
+
+
     // 予測ステップ
     void predict(float dt) {
         if (error_state || !isValidFloat(dt)) return;
