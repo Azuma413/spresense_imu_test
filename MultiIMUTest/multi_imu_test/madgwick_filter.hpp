@@ -24,7 +24,7 @@
 class Madgwick {
 private:
     // アルゴリズムのゲイン
-    const float betaDef = 0.5f; // 0.1f;            // 2 * proportional gain
+    const float betaDef = 0.1f;            // 2 * proportional gain
     const float sampleFreqDef = 512.0f;    // サンプリング周波数（Hz）
 
     float beta;                  // アルゴリズムゲイン

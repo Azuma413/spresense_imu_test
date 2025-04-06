@@ -2,7 +2,6 @@
 #include "ism330dhcx.hpp"
 #include "serial_send.hpp"
 #include "madgwick_filter.hpp"
-#include <math.h>
 
 Madgwick MadgwickFilter;
 MultiIMU imu;
