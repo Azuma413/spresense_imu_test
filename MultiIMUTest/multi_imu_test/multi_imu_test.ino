@@ -19,6 +19,9 @@ float send_list[6] = {0,0,0,0,0,0};         // Roll, Pitch, Yaw, X(cm), Y(cm), Z
 float world_acc[3] = {0, 0, 0};             // 世界座標系の加速度
 float last_update = 0;                       // 前回の更新時刻
 const float gravity = 9.80665;               // 重力加速度
+const int INIT_SAMPLES = 100;               // 初期化用サンプル数
+int init_counter = 0;                       // 初期化カウンタ
+float init_acc[3] = {0};                    // 初期化用加速度累積
 
 void setup() {
     Serial.begin(115200);
@@ -28,10 +31,31 @@ void setup() {
     // serial_send.init();
     MadgwickFilter.begin(960);  // Madgwickフィルタのサンプリング 960Hz
     last_update = millis() / 1000.0;
+
+    // IMUの初期化待ち
+    delay(100);
 }
 
 void loop() {
     if (imu.getData(data)) {
+        // 初期化フェーズ
+        if (init_counter < INIT_SAMPLES) {
+            // 初期加速度の平均を計算
+            for (int i = 0; i < 3; i++) {
+                init_acc[i] += data[i] / INIT_SAMPLES;
+            }
+            init_counter++;
+            if (init_counter == INIT_SAMPLES) {
+                // 初期バイアスを設定
+                float initial_bias[3];
+                for (int i = 0; i < 3; i++) {
+                    initial_bias[i] = init_acc[i];
+                }
+                kf.setState(nullptr, nullptr, initial_bias);
+            }
+            return;  // 初期化中は位置計算をスキップ
+        }
+
         float current_time = millis() / 1000.0;
         float dt = current_time - last_update;
         // 姿勢の更新（Madgwickフィルタ）
@@ -80,9 +104,9 @@ void loop() {
             // 位置とバイアスを再設定
             kf.setState(current_pos, current_vel, current_bias);
         } else {
-            // カルマンフィルタの更新
-            kf.predict(dt);
-            kf.update(world_acc);
+            // カルマンフィルタの更新（predictのみ使用）
+            kf.predict(dt, world_acc);
+            // kf.update(world_acc); // 観測更新ステップをコメントアウト
             // 状態の取得
             float position[3], velocity[3];
             kf.getState(position, velocity, nullptr);

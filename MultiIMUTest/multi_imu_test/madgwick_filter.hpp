@@ -330,9 +330,10 @@ public:
         float qw = q0, qx = q1, qy = q2, qz = q3;
         
         // 重力ベクトルの計算（センサー座標系）
-        float gx = 2 * (qx * qz - qw * qy) * 9.80665f;
-        float gy = 2 * (qw * qx + qy * qz) * 9.80665f;
-        float gz = (qw * qw - qx * qx - qy * qy + qz * qz) * 9.80665f;
+        // 世界座標系の重力ベクトル (0, 0, g) をクォータニオンで回転させる
+        float gx = 2 * (qx * qz + qw * qy) * 9.80665f; // X軸周りの回転成分
+        float gy = 2 * (qy * qz - qw * qx) * 9.80665f; // Y軸周りの回転成分
+        float gz = (qw * qw - qx * qx - qy * qy + qz * qz) * 9.80665f; // Z軸成分
         
         // 重力を補正
         float acc_no_gravity[3] = {ax - gx, ay - gy, az - gz};
